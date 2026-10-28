@@ -1,0 +1,12 @@
+<Project>
+  <!-- Every package here must be MIT/Apache-2.0/BSD-style. See THIRD-PARTY-NOTICES.md before adding one. -->
+  <ItemGroup>
+    <PackageVersion Include="NTwain" Version="3.7.6" />
+    <PackageVersion Include="Microsoft.Extensions.Logging.Abstractions" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.AspNetCore.TestHost" Version="10.0.14" />
+    <PackageVersion Include="Microsoft.NET.Test.Sdk" Version="17.14.1" />
+    <PackageVersion Include="xunit" Version="2.9.3" />
+    <PackageVersion Include="xunit.runner.visualstudio" Version="3.1.4" />
+    <PackageVersion Include="coverlet.collector" Version="6.0.4" />
+  </ItemGroup>
+</Project>

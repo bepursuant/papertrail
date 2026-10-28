@@ -1,0 +1,267 @@
+using System.Net;
+using System.Net.Http.Json;
+using System.Text.Json;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
+using Papertrail.Configuration;
+using Papertrail.Consent;
+using Papertrail.Imaging;
+using Papertrail.Scanning;
+
+namespace Papertrail.Server.Tests;
+
+public sealed class ApiTests : IAsyncLifetime
+{
+    private const string Site = "https://app.example.com";
+    private const string OtherSite = "https://other.example.com";
+
+    private PapertrailRuntime _runtime = null!;
+    private WebApplication _app = null!;
+    private HttpClient _http = null!;
+
+    private FixedConsentService Consent { get; set; } = new(allow: true);
+
+    private PapertrailPolicy Policy { get; set; } = new();
+
+    public Task InitializeAsync() => StartAsync();
+
+    public async Task DisposeAsync()
+    {
+        _http.Dispose();
+        await _app.DisposeAsync();
+        _runtime.Dispose();
+    }
+
+    [Fact]
+    public async Task Rejects_requests_with_a_foreign_host_header()
+    {
+        var request = Request(HttpMethod.Get, "/v1/status", Site);
+        request.Headers.Host = "attacker.example:47115";
+
+        var response = await _http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.MisdirectedRequest, response.StatusCode);
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
+    }
+
+    [Theory]
+    [InlineData(null)]
+    [InlineData("null")]
+    [InlineData("http://insecure.example.com")]
+    [InlineData("file://")]
+    public async Task Rejects_missing_or_insecure_origins_without_cors(string? origin)
+    {
+        var response = await _http.SendAsync(Request(HttpMethod.Get, "/v1/status", origin));
+
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Origin"));
+        Assert.Equal("origin_not_allowed", (await Error(response)).Error);
+    }
+
+    [Fact]
+    public async Task Answers_cors_and_private_network_preflight_for_https_origins()
+    {
+        var request = Request(HttpMethod.Options, "/v1/scans", Site);
+        request.Headers.Add("Access-Control-Request-Method", "POST");
+        request.Headers.Add("Access-Control-Request-Headers", "content-type");
+        request.Headers.Add("Access-Control-Request-Private-Network", "true");
+
+        var response = await _http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.Equal(Site, response.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        Assert.Contains("POST", response.Headers.GetValues("Access-Control-Allow-Methods").Single());
+        Assert.Equal("true", response.Headers.GetValues("Access-Control-Allow-Private-Network").Single());
+        Assert.False(response.Headers.Contains("Access-Control-Allow-Credentials"));
+    }
+
+    [Fact]
+    public async Task Status_is_readable_by_unpaired_sites_but_scanning_is_not()
+    {
+        var status = await GetJson<StatusResponse>("/v1/status", Site);
+        Assert.Equal("papertrail", status.App);
+        Assert.Equal("mock", status.Backend);
+        Assert.False(status.Paired);
+
+        var scanners = await _http.SendAsync(Request(HttpMethod.Get, "/v1/scanners", Site));
+        Assert.Equal(HttpStatusCode.Forbidden, scanners.StatusCode);
+        Assert.Equal(Site, scanners.Headers.GetValues("Access-Control-Allow-Origin").Single());
+        Assert.Equal("origin_not_paired", (await Error(scanners)).Error);
+
+        var scan = await _http.SendAsync(Request(HttpMethod.Post, "/v1/scans", Site));
+        Assert.Equal("origin_not_paired", (await Error(scan)).Error);
+    }
+
+    [Fact]
+    public async Task Full_flow_pair_scan_poll_download_delete()
+    {
+        var pair = await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site));
+        Assert.Equal(HttpStatusCode.OK, pair.StatusCode);
+        Assert.True((await GetJson<StatusResponse>("/v1/status", Site)).Paired);
+
+        var scanners = await GetJson<ScannersResponse>("/v1/scanners", Site);
+        Assert.Contains(scanners.Scanners, s => s.Id == MockScannerBackend.FeederId && s.IsDefault);
+
+        var create = Request(HttpMethod.Post, "/v1/scans", Site);
+        create.Content = JsonContent.Create(new { dpi = 150, colorMode = "gray", source = "feeder", duplex = true });
+        var created = await _http.SendAsync(create);
+        Assert.Equal(HttpStatusCode.Accepted, created.StatusCode);
+        var job = await Json<ScanJobResponse>(created);
+        Assert.Equal($"/v1/scans/{job.Id}", created.Headers.Location!.OriginalString);
+
+        job = await PollUntilFinished(job.Id, Site);
+        Assert.Equal(Jobs.ScanJobStatus.Completed, job.Status);
+        Assert.Equal(4, job.Pages.Count);
+
+        var page = await _http.SendAsync(Request(HttpMethod.Get, job.Pages[1].Url, Site));
+        Assert.Equal("image/png", page.Content.Headers.ContentType!.MediaType);
+        byte[] png = await page.Content.ReadAsByteArrayAsync();
+        Assert.True(PngEncoder.TryReadSize(png, out int w, out int h));
+        Assert.Equal((job.Pages[1].Width, job.Pages[1].Height), (w, h));
+        Assert.Equal(job.Pages[1].Size, png.Length);
+        Assert.Equal(1, Consent.ScanRequests);
+
+        Assert.Equal(HttpStatusCode.NoContent, (await _http.SendAsync(Request(HttpMethod.Delete, $"/v1/scans/{job.Id}", Site))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Get, $"/v1/scans/{job.Id}", Site))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Another_paired_site_cannot_see_someone_elses_scan()
+    {
+        _runtime.Origins.Pair(Site);
+        _runtime.Origins.Pair(OtherSite);
+        var created = await _http.SendAsync(Request(HttpMethod.Post, "/v1/scans", Site));
+        var job = await Json<ScanJobResponse>(created);
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Get, $"/v1/scans/{job.Id}", OtherSite))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Get, $"/v1/scans/{job.Id}/pages/0", OtherSite))).StatusCode);
+        Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Delete, $"/v1/scans/{job.Id}", OtherSite))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Declined_pairing_is_remembered_for_a_while()
+    {
+        await RestartAsync(consent: new FixedConsentService(allow: false));
+
+        var first = await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site));
+        var second = await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site));
+
+        Assert.Equal("pairing_denied", (await Error(first)).Error);
+        Assert.Equal("pairing_denied", (await Error(second)).Error);
+        Assert.Equal(1, Consent.PairingRequests);
+    }
+
+    [Fact]
+    public async Task Policy_can_disable_pairing_and_preapprove_origins()
+    {
+        await RestartAsync(policy: new PapertrailPolicy { AllowPairing = false, AllowedOrigins = [OtherSite] });
+
+        var pair = await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site));
+        Assert.Equal("pairing_disabled", (await Error(pair)).Error);
+        Assert.Equal(0, Consent.PairingRequests);
+
+        var status = await GetJson<StatusResponse>("/v1/status", OtherSite);
+        Assert.True(status.Paired);
+        Assert.False(status.PairingAllowed);
+    }
+
+    [Fact]
+    public async Task Policy_can_reject_http_localhost_pages()
+    {
+        await RestartAsync(policy: new PapertrailPolicy { AllowInsecureLoopbackOrigins = false });
+        var response = await _http.SendAsync(Request(HttpMethod.Get, "/v1/status", "http://localhost:47200"));
+        Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
+    }
+
+    [Theory]
+    [InlineData("{\"dpi\": 5}")]
+    [InlineData("{\"colorMode\": \"sepia\"}")]
+    [InlineData("{\"colorMode\": 1}")]
+    [InlineData("not json")]
+    public async Task Invalid_scan_options_are_rejected(string body)
+    {
+        _runtime.Origins.Pair(Site);
+        var request = Request(HttpMethod.Post, "/v1/scans", Site);
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_options", (await Error(response)).Error);
+    }
+
+    [Fact]
+    public async Task Scanner_failures_surface_as_job_errors()
+    {
+        _runtime.Origins.Pair(Site);
+        var create = Request(HttpMethod.Post, "/v1/scans", Site);
+        create.Content = JsonContent.Create(new { scannerId = MockScannerBackend.JammedId });
+        var job = await Json<ScanJobResponse>(await _http.SendAsync(create));
+
+        job = await PollUntilFinished(job.Id, Site);
+
+        Assert.Equal(Jobs.ScanJobStatus.Failed, job.Status);
+        Assert.Equal("paper_jam", job.Error!.Error);
+    }
+
+    private async Task StartAsync()
+    {
+        _runtime = new PapertrailRuntime(
+            new MockScannerBackend(new MockScannerOptions { PageDelay = TimeSpan.FromMilliseconds(1), FeederSheets = 2 }),
+            Consent,
+            new SettingsStore(path: null),
+            Policy);
+        _app = PapertrailServer.Build(_runtime, b => b.WebHost.UseTestServer());
+        await _app.StartAsync();
+        _http = _app.GetTestClient();
+        _http.BaseAddress = new Uri($"http://127.0.0.1:{PapertrailSettings.DefaultPort}");
+    }
+
+    private async Task RestartAsync(FixedConsentService? consent = null, PapertrailPolicy? policy = null)
+    {
+        await DisposeAsync();
+        Consent = consent ?? Consent;
+        Policy = policy ?? Policy;
+        await StartAsync();
+    }
+
+    private static HttpRequestMessage Request(HttpMethod method, string path, string? origin)
+    {
+        var request = new HttpRequestMessage(method, path);
+        if (origin is not null)
+        {
+            request.Headers.Add("Origin", origin);
+        }
+
+        return request;
+    }
+
+    private async Task<T> GetJson<T>(string path, string origin)
+    {
+        var response = await _http.SendAsync(Request(HttpMethod.Get, path, origin));
+        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
+        return await Json<T>(response);
+    }
+
+    private async Task<ScanJobResponse> PollUntilFinished(string id, string origin)
+    {
+        for (int i = 0; i < 500; i++)
+        {
+            var job = await GetJson<ScanJobResponse>($"/v1/scans/{id}", origin);
+            if (job.FinishedAt is not null)
+            {
+                return job;
+            }
+
+            await Task.Delay(10);
+        }
+
+        throw new TimeoutException("scan did not finish");
+    }
+
+    private static async Task<T> Json<T>(HttpResponseMessage response) =>
+        (await response.Content.ReadFromJsonAsync<T>(PapertrailJson.Options))!;
+
+    private static Task<ErrorResponse> Error(HttpResponseMessage response) => Json<ErrorResponse>(response);
+}

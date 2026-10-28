@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <RootNamespace>Papertrail.App</RootNamespace>
+    <AssemblyName>Papertrail</AssemblyName>
+    <UseWindowsForms>true</UseWindowsForms>
+    <UseWPF>true</UseWPF>
+    <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
+    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Papertrail.Core\Papertrail.Core.csproj" />
+    <ProjectReference Include="..\Papertrail.Server\Papertrail.Server.csproj" />
+    <ProjectReference Include="..\Papertrail.Twain\Papertrail.Twain.csproj" />
+  </ItemGroup>
+
+</Project>
