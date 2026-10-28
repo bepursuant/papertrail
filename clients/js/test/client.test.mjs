@@ -146,6 +146,23 @@ test('reports not_running when the app never comes up', async () => {
   await assert.rejects(client(app, { launch: () => {} }).connect(), (err) => err.code === 'not_running');
 });
 
+test('retries without targetAddressSpace when the browser rejects the value', async () => {
+  const app = new FakeApp({ paired: true });
+  const seen = [];
+  const fetchImpl = async (url, init) => {
+    seen.push(init.targetAddressSpace);
+    if (init.targetAddressSpace === 'loopback') {
+      throw new TypeError("Failed to read the 'targetAddressSpace' property from 'RequestInit': The provided value 'loopback' is not a valid enum value");
+    }
+    return app.fetch(url, { ...init, targetAddressSpace: 'loopback' });
+  };
+  const c = client(app, { fetch: fetchImpl });
+
+  assert.equal((await c.status()).paired, true);
+  await c.status();
+  assert.deepEqual(seen, ['loopback', undefined, undefined]);
+});
+
 test('status() returns null when unreachable', async () => {
   assert.equal(await client(new FakeApp({ running: false })).status(), null);
 });

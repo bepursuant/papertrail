@@ -208,19 +208,24 @@ export class PapertrailClient {
   }
 
   async _request(method, path, body) {
+    const init = {
+      method,
+      mode: 'cors',
+      credentials: 'omit',
+      cache: 'no-store',
+      headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    };
     let response;
     try {
-      response = await this._fetch(this.baseUrl + path, {
-        method,
-        mode: 'cors',
-        credentials: 'omit',
-        cache: 'no-store',
-        // Local Network Access: declares the loopback target (also exempts it from mixed-content blocking).
-        targetAddressSpace: 'loopback',
-        headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
-        body: body === undefined ? undefined : JSON.stringify(body),
-      });
+      // Local Network Access: declares the loopback target (also exempts it from mixed-content blocking).
+      response = await this._fetch(this.baseUrl + path, this._sendAddressSpace === false ? init : { ...init, targetAddressSpace: 'loopback' });
     } catch (err) {
+      // Browsers that only know the older Private Network Access values reject 'loopback' outright.
+      if (this._sendAddressSpace !== false && /targetAddressSpace/i.test(String(err?.message))) {
+        this._sendAddressSpace = false;
+        return this._request(method, path, body);
+      }
       throw new PapertrailError('unreachable', 'Could not reach papertrail on this computer.', { cause: err });
     }
     if (!response.ok) {

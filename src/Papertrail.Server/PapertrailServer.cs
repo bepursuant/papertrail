@@ -28,7 +28,12 @@ public static class PapertrailServer
     /// </summary>
     public static WebApplication Build(PapertrailRuntime runtime, Action<WebApplicationBuilder>? configure = null)
     {
-        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions { ApplicationName = "Papertrail" });
+        // Explicit content root: when Windows launches us as a URL handler the working directory can be System32.
+        var builder = WebApplication.CreateSlimBuilder(new WebApplicationOptions
+        {
+            ApplicationName = "Papertrail",
+            ContentRootPath = AppContext.BaseDirectory,
+        });
         int port = runtime.Port;
         builder.WebHost.ConfigureKestrel(k =>
         {
