@@ -12,6 +12,6 @@
   "scripts": {
     "test": "node --test \"test/*.test.mjs\""
   },
-  "license": "SEE LICENSE IN ../../LICENSE",
+  "license": "UNLICENSED",
   "private": true
 }

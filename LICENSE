@@ -1,25 +1,20 @@
 papertrail
 Copyright (c) 2026 Pursuant Solutions. All rights reserved.
 
-*** PLACEHOLDER - NOT LEGAL TEXT - HAVE THIS REVIEWED BY COUNSEL BEFORE ANY RELEASE ***
+This software, including its source code, binaries, installers and documentation, is the
+proprietary property of Pursuant Solutions. No license or right to use, copy, modify, merge,
+publish, distribute, sublicense or sell this software, in whole or in part, is granted by this
+file or by access to the software, except under a separate written agreement with, or a license
+issued by, Pursuant Solutions.
 
-Intended licensing model (dual license):
+Pursuant Solutions reserves the right to distribute this software in any form and on any terms
+it chooses, including free of charge or for a fee.
 
-  1. Free use for open-source projects.
-     You may use, copy, modify and redistribute papertrail at no charge as part of a project
-     whose own source code is publicly released under an OSI-approved open-source license.
-     [TO DECIDE: exact definition of "open-source project"; which base license implements this
-     (e.g. AGPL-3.0 / GPL-3.0 as the copyleft option, or a source-available license such as
-     PolyForm Noncommercial / PolyForm Free Trial / BUSL with a change date).]
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT
+NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL PURSUANT SOLUTIONS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR ITS USE, EXCEPT AS
+OTHERWISE AGREED IN WRITING.
 
-  2. Commercial license for all other use.
-     Any use in or with closed-source, proprietary, internal-business or revenue-generating
-     software requires a paid commercial license from Pursuant Solutions.
-     [TO DECIDE: license terms, pricing, contact address.]
-
-Until the final license text replaces this file, no license is granted beyond evaluation of
-the source code.
-
-Third-party components are licensed under their own terms; see THIRD-PARTY-NOTICES.md.
-Contributions: [TO DECIDE: CLA or DCO, required so contributions can be offered under both
-licenses.]
+Third-party components included with papertrail are licensed under their own terms; see
+THIRD-PARTY-NOTICES.md.
