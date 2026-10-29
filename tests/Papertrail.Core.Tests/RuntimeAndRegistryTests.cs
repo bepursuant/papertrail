@@ -173,6 +173,15 @@ public class RuntimeAndRegistryTests
     }
 
     [Fact]
+    public async Task Single_instance_channel_can_be_disposed_twice()
+    {
+        var channel = new SingleInstanceChannel($"papertrail-test-{Guid.NewGuid():N}");
+        channel.Start(_ => Task.CompletedTask);
+        await channel.DisposeAsync();
+        await channel.DisposeAsync();
+    }
+
+    [Fact]
     public async Task Sending_without_a_running_instance_fails_fast()
     {
         Assert.False(await SingleInstanceChannel.TrySendAsync(["papertrail://launch"], $"papertrail-none-{Guid.NewGuid():N}", TimeSpan.FromMilliseconds(200)));

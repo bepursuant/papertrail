@@ -24,6 +24,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly NotifyIcon _tray;
     private readonly string _exePath = Environment.ProcessPath ?? Application.ExecutablePath;
     private ApprovedSitesForm? _sitesForm;
+    private bool _disposed;
 
     public TrayApplicationContext(AppOptions options)
     {
@@ -80,10 +81,12 @@ internal sealed class TrayApplicationContext : ApplicationContext
         HandleUrls(options.Urls);
     }
 
+    // WinForms disposes the context when the message loop ends, and Main's using disposes it again.
     protected override void Dispose(bool disposing)
     {
-        if (disposing)
+        if (disposing && !_disposed)
         {
+            _disposed = true;
             _tray.Visible = false;
             _tray.Dispose();
             Task.Run(() => _channel.DisposeAsync().AsTask()).GetAwaiter().GetResult();

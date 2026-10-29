@@ -14,7 +14,6 @@
          Runtime and ASP.NET Core Runtime 10; the MSI checks for both. -->
     <SelfContained>false</SelfContained>
     <PublishSingleFile>true</PublishSingleFile>
-    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

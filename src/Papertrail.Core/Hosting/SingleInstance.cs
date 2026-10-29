@@ -13,6 +13,7 @@ public sealed class SingleInstanceChannel : IAsyncDisposable
     private readonly string _pipeName;
     private readonly CancellationTokenSource _stop = new();
     private Task? _serverLoop;
+    private int _disposed;
 
     public SingleInstanceChannel(string? pipeName = null)
     {
@@ -58,6 +59,11 @@ public sealed class SingleInstanceChannel : IAsyncDisposable
 
     public async ValueTask DisposeAsync()
     {
+        if (Interlocked.Exchange(ref _disposed, 1) != 0)
+        {
+            return;
+        }
+
         await _stop.CancelAsync().ConfigureAwait(false);
         if (_serverLoop is not null)
         {

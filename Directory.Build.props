@@ -6,6 +6,8 @@
     <TreatWarningsAsErrors>true</TreatWarningsAsErrors>
     <!-- Lets the Windows-only projects compile on Linux/macOS build agents. -->
     <EnableWindowsTargeting>true</EnableWindowsTargeting>
+    <!-- Stack traces keep line numbers, and the single-file publish stays one file. -->
+    <DebugType>embedded</DebugType>
     <Version>0.1.0</Version>
     <Authors>Pursuant Solutions</Authors>
     <Product>papertrail</Product>
