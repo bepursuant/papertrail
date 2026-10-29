@@ -210,6 +210,42 @@ public class ScanJobManagerTests
         Assert.Equal(1, backend.MaxConcurrent);
     }
 
+    [Fact]
+    public async Task A_scan_that_never_finishes_fails_with_scan_timeout()
+    {
+        var backend = new HangingBackend();
+        var origins = new OriginRegistry(new SettingsStore(null), new PapertrailPolicy());
+        origins.Pair(Origin);
+        using var jobs = new ScanJobManager(backend, origins, scanTimeout: TimeSpan.FromMilliseconds(50));
+
+        var job = jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api);
+        await job.Finished.WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.Equal(ScanJobStatus.Failed, job.Status);
+        Assert.Equal("scan_timeout", job.ErrorCode);
+        await backend.Canceled.WaitAsync(TimeSpan.FromSeconds(10));
+    }
+
+    private sealed class HangingBackend : IScannerBackend
+    {
+        private readonly TaskCompletionSource _canceled = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public Task Canceled => _canceled.Task;
+
+        public string Name => "hanging";
+
+        public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
+            Task.FromResult<IReadOnlyList<ScannerInfo>>([]);
+
+        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+        {
+            // Ignores cancellation, like a driver stuck inside a call.
+            cancellationToken.Register(() => _canceled.TrySetResult());
+            await new TaskCompletionSource().Task;
+            return [];
+        }
+    }
+
     private sealed class ConcurrencyProbe : IScannerBackend
     {
         private int _current;

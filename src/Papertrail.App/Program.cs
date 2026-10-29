@@ -1,6 +1,8 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.IO;
 using Papertrail.Hosting;
+using Papertrail.Scanning;
 
 namespace Papertrail.App;
 
@@ -22,6 +24,12 @@ internal static class Program
         if (options.Exit)
         {
             return StopRunningInstance();
+        }
+
+        if (options.DiagnoseScanner || options.TestScan)
+        {
+            ApplicationConfiguration.Initialize();
+            return ScannerTools.Run(options);
         }
 
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool isPrimary);
@@ -135,6 +143,23 @@ internal sealed class AppOptions
     /// <summary>Started by the sign-in Run key: stay silent until needed.</summary>
     public bool Background { get; private set; }
 
+    /// <summary>Write a TWAIN report (managers, sources, capabilities) to the log folder, then exit.</summary>
+    public bool DiagnoseScanner { get; private set; }
+
+    /// <summary>Scan once with the options below, save the pages to the log folder, then exit.</summary>
+    public bool TestScan { get; private set; }
+
+    public int? Dpi { get; private set; }
+
+    public ColorMode? ColorMode { get; private set; }
+
+    public PaperSource? PaperSource { get; private set; }
+
+    public string? ScannerId { get; private set; }
+
+    public string ToolDescription =>
+        $"scanner {ScannerId ?? "(default)"}, dpi {Dpi?.ToString(CultureInfo.InvariantCulture) ?? "(default)"}, color {ColorMode?.ToString() ?? "(default)"}, source {PaperSource?.ToString() ?? "(default)"}";
+
     public static AppOptions Parse(string[] args)
     {
         var options = new AppOptions();
@@ -149,6 +174,11 @@ internal sealed class AppOptions
 
         foreach (string arg in args)
         {
+            if (TryParseValue(options, arg))
+            {
+                continue;
+            }
+
             switch (arg.ToLowerInvariant())
             {
                 case "--register": options.Register = true; break;
@@ -158,9 +188,49 @@ internal sealed class AppOptions
                 case "--mock": options.UseMockScanner = true; break;
                 case "--background": options.Background = true; break;
                 case ExitCommand: options.Exit = true; break;
+                case "--diagnose-scanner": options.DiagnoseScanner = true; break;
+                case "--test-scan": options.TestScan = true; break;
             }
         }
 
         return options;
+    }
+
+    private static bool TryParseValue(AppOptions options, string arg)
+    {
+        int equals = arg.IndexOf('=', StringComparison.Ordinal);
+        if (equals < 0)
+        {
+            return false;
+        }
+
+        string value = arg[(equals + 1)..];
+        switch (arg[..equals].ToLowerInvariant())
+        {
+            case "--dpi" when int.TryParse(value, NumberStyles.None, CultureInfo.InvariantCulture, out int dpi):
+                options.Dpi = Math.Clamp(dpi, ScanOptions.MinDpi, ScanOptions.MaxDpi);
+                return true;
+            case "--color":
+                options.ColorMode = value.ToLowerInvariant() switch
+                {
+                    "bw" or "blackwhite" => Scanning.ColorMode.BlackWhite,
+                    "gray" or "grey" => Scanning.ColorMode.Gray,
+                    _ => Scanning.ColorMode.Color,
+                };
+                return true;
+            case "--source":
+                options.PaperSource = value.ToLowerInvariant() switch
+                {
+                    "flatbed" => Scanning.PaperSource.Flatbed,
+                    "feeder" => Scanning.PaperSource.Feeder,
+                    _ => Scanning.PaperSource.Auto,
+                };
+                return true;
+            case "--scanner":
+                options.ScannerId = value.Length > 0 ? value : null;
+                return true;
+            default:
+                return false;
+        }
     }
 }

@@ -12,5 +12,6 @@
   <Folder Name="/tests/">
     <Project Path="tests/Papertrail.Core.Tests/Papertrail.Core.Tests.csproj" />
     <Project Path="tests/Papertrail.Server.Tests/Papertrail.Server.Tests.csproj" />
+    <Project Path="tests/twain-wine/Probe/Papertrail.TwainProbe.csproj" />
   </Folder>
 </Solution>
