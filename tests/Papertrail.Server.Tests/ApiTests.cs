@@ -112,6 +112,7 @@ public sealed class ApiTests : IAsyncLifetime
 
         job = await PollUntilFinished(job.Id, Site);
         Assert.Equal(Jobs.ScanJobStatus.Completed, job.Status);
+        Assert.Equal(OutputFormat.Png, job.Format);
         Assert.Equal(4, job.Pages.Count);
 
         var page = await _http.SendAsync(Request(HttpMethod.Get, job.Pages[1].Url, Site));
@@ -120,10 +121,42 @@ public sealed class ApiTests : IAsyncLifetime
         Assert.True(PngEncoder.TryReadSize(png, out int w, out int h));
         Assert.Equal((job.Pages[1].Width, job.Pages[1].Height), (w, h));
         Assert.Equal(job.Pages[1].Size, png.Length);
-        Assert.Equal(1, Consent.ScanRequests);
 
         Assert.Equal(HttpStatusCode.NoContent, (await _http.SendAsync(Request(HttpMethod.Delete, $"/v1/scans/{job.Id}", Site))).StatusCode);
         Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Get, $"/v1/scans/{job.Id}", Site))).StatusCode);
+    }
+
+    [Fact]
+    public async Task Paired_site_scans_repeatedly_with_only_the_one_pairing_prompt()
+    {
+        await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site));
+
+        for (int i = 0; i < 3; i++)
+        {
+            var job = await Json<ScanJobResponse>(await _http.SendAsync(Request(HttpMethod.Post, "/v1/scans", Site)));
+            Assert.Equal(Jobs.ScanJobStatus.Completed, (await PollUntilFinished(job.Id, Site)).Status);
+        }
+
+        Assert.Equal(1, Consent.PairingRequests);
+    }
+
+    [Fact]
+    public async Task Protocol_scan_starts_when_the_owning_site_polls_for_it()
+    {
+        _runtime.Origins.Pair(Site);
+        _runtime.Origins.Pair(OtherSite);
+        string id = Jobs.ScanJobManager.NewId();
+        _runtime.HandleProtocolUrl(Protocol.PapertrailUri.BuildScan(Site, id, new ScanOptions { Source = PaperSource.Flatbed }));
+
+        Assert.Equal(HttpStatusCode.NotFound, (await _http.SendAsync(Request(HttpMethod.Get, $"/v1/scans/{id}", OtherSite))).StatusCode);
+        await Task.Delay(50);
+        Assert.False(_runtime.Jobs.Get(id, Site)!.IsClaimed);
+
+        var job = await PollUntilFinished(id, Site);
+
+        Assert.Equal(Jobs.ScanJobStatus.Completed, job.Status);
+        Assert.Equal(Jobs.ScanTrigger.ProtocolUrl, job.Trigger);
+        Assert.Single(job.Pages);
     }
 
     [Fact]
@@ -178,6 +211,7 @@ public sealed class ApiTests : IAsyncLifetime
     [InlineData("{\"dpi\": 5}")]
     [InlineData("{\"colorMode\": \"sepia\"}")]
     [InlineData("{\"colorMode\": 1}")]
+    [InlineData("{\"format\": \"pdf\"}")]
     [InlineData("not json")]
     public async Task Invalid_scan_options_are_rejected(string body)
     {
@@ -215,7 +249,7 @@ public sealed class ApiTests : IAsyncLifetime
         _app = PapertrailServer.Build(_runtime, b => b.WebHost.UseTestServer());
         await _app.StartAsync();
         _http = _app.GetTestClient();
-        _http.BaseAddress = new Uri($"http://127.0.0.1:{PapertrailSettings.DefaultPort}");
+        _http.BaseAddress = new Uri($"http://127.0.0.1:{PapertrailRuntime.FixedPort}");
     }
 
     private async Task RestartAsync(FixedConsentService? consent = null, PapertrailPolicy? policy = null)

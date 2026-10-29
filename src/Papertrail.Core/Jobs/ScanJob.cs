@@ -7,10 +7,8 @@ namespace Papertrail.Jobs;
 public enum ScanJobStatus
 {
     Queued,
-    AwaitingConsent,
     Scanning,
     Completed,
-    Denied,
     Failed,
     Canceled,
 }
@@ -21,7 +19,10 @@ public enum ScanTrigger
     /// <summary>POST /v1/scans with a verified Origin header.</summary>
     Api,
 
-    /// <summary>papertrail://scan URL; the origin is a claim that is only honored for paired origins.</summary>
+    /// <summary>
+    /// papertrail://scan URL. The origin in the URL is unverified, so the scanner only starts once
+    /// that origin claims the job over HTTP (see <see cref="ScanJobManager.Claim"/>).
+    /// </summary>
     ProtocolUrl,
 }
 
@@ -30,6 +31,7 @@ public sealed class ScanJob
     private readonly object _gate = new();
     private readonly List<ScannedPage> _pages = [];
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    private readonly TaskCompletionSource _claimed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
     internal ScanJob(string id, string origin, ScanOptions options, ScanTrigger trigger, DateTimeOffset createdAt)
     {
@@ -38,6 +40,10 @@ public sealed class ScanJob
         Options = options;
         Trigger = trigger;
         CreatedAt = createdAt;
+        if (trigger == ScanTrigger.Api)
+        {
+            _claimed.TrySetResult();
+        }
     }
 
     public string Id { get; }
@@ -58,10 +64,15 @@ public sealed class ScanJob
 
     public string? ErrorMessage { get; private set; }
 
-    public bool IsFinished => Status is ScanJobStatus.Completed or ScanJobStatus.Denied or ScanJobStatus.Failed or ScanJobStatus.Canceled;
+    public bool IsFinished => Status is ScanJobStatus.Completed or ScanJobStatus.Failed or ScanJobStatus.Canceled;
 
     /// <summary>Completes when the job reaches a terminal status.</summary>
     public Task Finished => _finished.Task;
+
+    /// <summary>True once the owning origin has asked for the job over HTTP (always true for API jobs).</summary>
+    public bool IsClaimed => _claimed.Task.IsCompleted;
+
+    internal Task Claimed => _claimed.Task;
 
     internal CancellationTokenSource Cancellation { get; } = new();
 
@@ -75,6 +86,8 @@ public sealed class ScanJob
             }
         }
     }
+
+    internal void Claim() => _claimed.TrySetResult();
 
     internal void AddPage(ScannedPage page)
     {

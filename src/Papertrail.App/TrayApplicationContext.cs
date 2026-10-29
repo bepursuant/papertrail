@@ -73,7 +73,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
 
         _channel.Start(args =>
         {
-            _ui.Post(_ => HandleUrls(args), null);
+            _ui.Post(_ => OnForwardedArguments(args), null);
             return Task.CompletedTask;
         });
 
@@ -148,8 +148,20 @@ internal sealed class TrayApplicationContext : ApplicationContext
         catch (IOException ex)
         {
             _logger.LogError(ex, "Could not listen on port {Port}", _runtime.Port);
-            Notify("papertrail could not start", $"Port {_runtime.Port} is already in use. Close the other program or change the port.", ToolTipIcon.Error);
+            Notify("papertrail could not start", $"Port {_runtime.Port} is already in use, maybe by papertrail in another signed-in Windows session. Close the other program, then restart papertrail.", ToolTipIcon.Error);
         }
+    }
+
+    private void OnForwardedArguments(string[] args)
+    {
+        if (args is [AppOptions.ExitCommand])
+        {
+            _logger.LogInformation("Exiting at the request of another papertrail process (installer)");
+            ExitThread();
+            return;
+        }
+
+        HandleUrls(args);
     }
 
     private void HandleUrls(IEnumerable<string> urls)

@@ -40,7 +40,7 @@ class FakeApp {
   };
 
   addJob(id, options, outcome = 'completed') {
-    const job = { id, options, polls: 0, status: 'awaitingConsent', outcome };
+    const job = { id, options, polls: 0, status: 'queued', outcome };
     this.jobs.set(id, job);
     return this.view(job);
   }
@@ -51,8 +51,9 @@ class FakeApp {
       id: job.id,
       status: job.status,
       trigger: 'api',
+      format: 'png',
       createdAt: new Date().toISOString(),
-      error: job.status === 'denied' ? { error: 'consent_denied', message: 'The user declined the scan.' } : undefined,
+      error: job.status === 'failed' ? { error: 'paper_jam', message: 'The scanner reported a paper jam.' } : undefined,
       pages: done ? [{ index: 0, mediaType: 'image/png', width: 10, height: 14, size: 4, url: `/v1/scans/${job.id}/pages/0` }] : [],
     };
   }
@@ -68,13 +69,14 @@ function client(app, extra = {}) {
 }
 
 test('buildScanUrl encodes origin, request id and options', () => {
-  const url = buildScanUrl(ORIGIN, 'abc123abc123abc123', { dpi: 300, colorMode: 'gray', duplex: true, scannerId: 'A & B' });
+  const url = buildScanUrl(ORIGIN, 'abc123abc123abc123', { dpi: 300, colorMode: 'gray', duplex: true, scannerId: 'A & B', format: 'png' });
   const parsed = new URL(url);
   assert.equal(parsed.protocol, 'papertrail:');
   assert.equal(parsed.searchParams.get('origin'), ORIGIN);
   assert.equal(parsed.searchParams.get('request'), 'abc123abc123abc123');
   assert.equal(parsed.searchParams.get('scannerId'), 'A & B');
   assert.equal(parsed.searchParams.get('duplex'), 'true');
+  assert.equal(parsed.searchParams.get('format'), 'png');
   assert.equal(parsed.searchParams.get('v'), '1');
 });
 
@@ -92,16 +94,16 @@ test('scan pairs an unpaired site, polls to completion, downloads pages and clea
   assert.deepEqual(app.deleted, ['job123456789abcdef']);
 });
 
-test('denied scans reject with the server error code', async () => {
+test('failed scans reject with the server error code', async () => {
   const app = new FakeApp({ paired: true });
   app.fetch = ((inner) => async (url, init) => {
     if (init?.method === 'POST' && url.endsWith('/v1/scans')) {
-      return new Response(JSON.stringify(app.addJob('deniedjob1234567890', {}, 'denied')), { status: 202 });
+      return new Response(JSON.stringify(app.addJob('jammedjob1234567890', {}, 'failed')), { status: 202 });
     }
     return inner(url, init);
   })(app.fetch);
 
-  await assert.rejects(client(app).scan(), (err) => err instanceof PapertrailError && err.code === 'consent_denied');
+  await assert.rejects(client(app).scan(), (err) => err instanceof PapertrailError && err.code === 'paper_jam');
 });
 
 test('when the app is not running and the site was paired before, scan launches papertrail://scan', async () => {

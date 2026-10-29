@@ -17,46 +17,37 @@ internal static class TestRuntime
 {
     public const string Origin = "https://app.example.com";
 
+    public static MockScannerBackend FastMock() =>
+        new(new MockScannerOptions { PageDelay = TimeSpan.FromMilliseconds(1), FeederSheets = 2 });
+
     public static PapertrailRuntime Create(
         IConsentService? consent = null,
         PapertrailPolicy? policy = null,
         TimeProvider? time = null,
         IScannerBackend? backend = null) =>
         new(
-            backend ?? new MockScannerBackend(new MockScannerOptions { PageDelay = TimeSpan.FromMilliseconds(1), FeederSheets = 2 }),
+            backend ?? FastMock(),
             consent ?? new FixedConsentService(allow: true),
             new SettingsStore(path: null),
             policy ?? new PapertrailPolicy(),
             time);
 }
 
-/// <summary>Consent stub that records requests and can remember "don't ask again".</summary>
-internal sealed class RecordingConsent(bool allow, bool remember = false) : IConsentService
+/// <summary>Wraps a backend and counts how often the scanner was actually started.</summary>
+internal sealed class CountingBackend(IScannerBackend inner) : IScannerBackend
 {
-    public List<ScanConsentRequest> ScanRequests { get; } = [];
+    private int _scans;
 
-    public Task<bool> RequestPairingAsync(PairingRequest request, CancellationToken cancellationToken) => Task.FromResult(allow);
+    public int Scans => Volatile.Read(ref _scans);
 
-    public Task<ScanConsent> RequestScanAsync(ScanConsentRequest request, CancellationToken cancellationToken)
+    public string Name => inner.Name;
+
+    public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
+        inner.ListScannersAsync(cancellationToken);
+
+    public Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
     {
-        lock (ScanRequests)
-        {
-            ScanRequests.Add(request);
-        }
-
-        return Task.FromResult(new ScanConsent(allow, remember));
-    }
-}
-
-/// <summary>Never answers until canceled, like a user who walked away.</summary>
-internal sealed class SilentConsent : IConsentService
-{
-    public Task<bool> RequestPairingAsync(PairingRequest request, CancellationToken cancellationToken) =>
-        Task.Delay(Timeout.Infinite, cancellationToken).ContinueWith(_ => false, TaskScheduler.Default);
-
-    public async Task<ScanConsent> RequestScanAsync(ScanConsentRequest request, CancellationToken cancellationToken)
-    {
-        await Task.Delay(Timeout.Infinite, cancellationToken);
-        return ScanConsent.Deny;
+        Interlocked.Increment(ref _scans);
+        return inner.ScanAsync(options, onPage, cancellationToken);
     }
 }

@@ -12,21 +12,30 @@ namespace Papertrail;
 /// <summary>Everything a host (tray app, dev host, tests) needs, wired together.</summary>
 public sealed class PapertrailRuntime : IDisposable
 {
+    /// <summary>
+    /// The only port the app listens on. Web pages hard-code it, so it is deliberately not
+    /// configurable and there is no fallback.
+    /// </summary>
+    public const int FixedPort = 47115;
+
+    /// <param name="port">Only the dev host and tests pass this, to run several hosts side by side.</param>
     public PapertrailRuntime(
         IScannerBackend backend,
         IConsentService consent,
         SettingsStore settings,
         PapertrailPolicy policy,
         TimeProvider? time = null,
-        ILoggerFactory? loggerFactory = null)
+        ILoggerFactory? loggerFactory = null,
+        int port = FixedPort)
     {
         loggerFactory ??= NullLoggerFactory.Instance;
         Backend = backend;
         Consent = consent;
         Settings = settings;
         Policy = policy;
+        Port = port;
         Origins = new OriginRegistry(settings, policy, time);
-        Jobs = new ScanJobManager(backend, consent, Origins, time, logger: loggerFactory.CreateLogger<ScanJobManager>());
+        Jobs = new ScanJobManager(backend, Origins, time, logger: loggerFactory.CreateLogger<ScanJobManager>());
         Logger = loggerFactory.CreateLogger<PapertrailRuntime>();
     }
 
@@ -42,7 +51,7 @@ public sealed class PapertrailRuntime : IDisposable
 
     public ScanJobManager Jobs { get; }
 
-    public int Port => Policy.Port ?? Settings.Snapshot().Port;
+    public int Port { get; }
 
     private ILogger Logger { get; }
 
@@ -61,8 +70,9 @@ public sealed class PapertrailRuntime : IDisposable
         }
 
         // The origin in a protocol URL is an unverified claim. We only act on it for origins that
-        // were already paired through the HTTP API (where the browser vouches for Origin), and the
-        // result can only be collected by that origin using the unguessable request id.
+        // were already paired through the HTTP API (where the browser vouches for Origin), the
+        // scanner waits until that origin claims the job over HTTP, and the result can only be
+        // collected by that origin using the unguessable request id.
         if (!Origins.TryNormalize(command.Origin, out string origin) || !Origins.IsPaired(origin))
         {
             Logger.LogWarning("Rejected papertrail:// scan for unpaired origin {Origin}", command.Origin);

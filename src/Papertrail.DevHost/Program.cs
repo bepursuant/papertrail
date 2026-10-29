@@ -11,7 +11,7 @@ using Papertrail.Server;
 // Windows without a scanner). Consent prompts are answered automatically, so never point this
 // at real hardware.
 
-var port = PapertrailSettings.DefaultPort;
+var port = PapertrailRuntime.FixedPort;
 bool allow = true;
 var preApproved = new List<string>();
 var urls = new List<string>();
@@ -46,8 +46,8 @@ for (int i = 0; i < args.Length; i++)
             Console.WriteLine("""
                 papertrail dev host (mock scanner)
 
-                  --port <n>             API port (default 47115)
-                  --consent allow|deny   auto-answer pairing and scan prompts (default allow)
+                  --port <n>             API port (default 47115; the real app always uses 47115)
+                  --consent allow|deny   auto-answer pairing prompts (default allow)
                   --allow-origin <url>   pre-approve an origin, like policy.json AllowedOrigins
                   --page-delay-ms <n>    simulated time per page (default 400)
                   --settings <path>      persist pairings to a JSON file (default: in memory)
@@ -70,7 +70,7 @@ if (urls.Count > 0 && await SingleInstanceChannel.TrySendAsync(urls.ToArray(), p
 using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Information));
 var logger = loggerFactory.CreateLogger("papertrail");
 
-var policy = new PapertrailPolicy { AllowedOrigins = preApproved, Port = port };
+var policy = new PapertrailPolicy { AllowedOrigins = preApproved };
 var settings = new SettingsStore(settingsPath);
 var consent = new LoggingConsent(new FixedConsentService(allow), logger);
 using var runtime = new PapertrailRuntime(
@@ -78,7 +78,8 @@ using var runtime = new PapertrailRuntime(
     consent,
     settings,
     policy,
-    loggerFactory: loggerFactory);
+    loggerFactory: loggerFactory,
+    port: port);
 
 runtime.Jobs.JobFinished += job => logger.LogInformation("Scan {Id} for {Origin}: {Status} ({Pages} pages)", job.Id, job.Origin, job.Status, job.Pages.Count);
 
@@ -117,11 +118,5 @@ internal sealed class LoggingConsent(IConsentService inner, ILogger logger) : IC
     {
         logger.LogInformation("Pairing request from {Origin} (auto-answered)", request.Origin);
         return inner.RequestPairingAsync(request, cancellationToken);
-    }
-
-    public Task<ScanConsent> RequestScanAsync(ScanConsentRequest request, CancellationToken cancellationToken)
-    {
-        logger.LogInformation("Scan request from {Origin} on {Scanner} via {Trigger} (auto-answered)", request.Origin, request.ScannerName, request.Trigger);
-        return inner.RequestScanAsync(request, cancellationToken);
     }
 }

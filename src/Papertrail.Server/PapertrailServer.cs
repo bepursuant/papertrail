@@ -133,7 +133,7 @@ public static class PapertrailServer
 
             // One prompt at a time so a page cannot stack dialogs.
             using var timeout = CancellationTokenSource.CreateLinkedTokenSource(ctx.RequestAborted);
-            timeout.CancelAfter(ScanJobManager.ConsentTimeout);
+            timeout.CancelAfter(Papertrail.Security.OriginRegistry.PairingPromptTimeout);
             try
             {
                 await pairingPrompt.WaitAsync(timeout.Token);
@@ -230,7 +230,7 @@ public static class PapertrailServer
                 return denied;
             }
 
-            return runtime.Jobs.Get(id, OriginOf(ctx)) is { } job
+            return runtime.Jobs.Claim(id, OriginOf(ctx)) is { } job
                 ? Results.Ok(ScanJobResponse.From(job))
                 : Error(StatusCodes.Status404NotFound, "not_found", "No such scan.");
         });

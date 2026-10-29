@@ -2,7 +2,9 @@ export declare const DEFAULT_PORT: 47115;
 
 export type ColorMode = 'color' | 'gray' | 'blackWhite';
 export type PaperSource = 'auto' | 'flatbed' | 'feeder';
-export type ScanStatus = 'queued' | 'awaitingConsent' | 'scanning' | 'completed' | 'denied' | 'failed' | 'canceled';
+export type ScanStatus = 'queued' | 'scanning' | 'completed' | 'failed' | 'canceled';
+/** Only 'png' (one image per page) today. */
+export type OutputFormat = 'png';
 
 export interface ScanOptions {
   scannerId?: string;
@@ -12,6 +14,7 @@ export interface ScanOptions {
   duplex?: boolean;
   showDriverUi?: boolean;
   maxPages?: number;
+  format?: OutputFormat;
 }
 
 export interface AppStatus {
@@ -44,6 +47,7 @@ export interface ScanJob {
   id: string;
   status: ScanStatus;
   trigger: 'api' | 'protocolUrl';
+  format: OutputFormat;
   createdAt: string;
   finishedAt?: string;
   error?: { error: string; message: string };
@@ -56,6 +60,7 @@ export interface ScanResult {
 }
 
 export interface PapertrailClientOptions {
+  /** Only for testing against a dev host; papertrail itself always uses 47115. */
   port?: number;
   pollIntervalMs?: number;
   launchTimeoutMs?: number;

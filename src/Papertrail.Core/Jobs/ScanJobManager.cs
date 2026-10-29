@@ -3,7 +3,6 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
-using Papertrail.Consent;
 using Papertrail.Scanning;
 using Papertrail.Security;
 
@@ -21,20 +20,22 @@ public sealed class JobRejectedException : Exception
 }
 
 /// <summary>
-/// Owns scan jobs: consent, running one scan at a time, keeping results in memory until they
-/// expire, and releasing them only to the origin that owns the job.
+/// Owns scan jobs: running one scan at a time, keeping results in memory until they expire, and
+/// releasing them only to the origin that owns the job. Scans from paired origins never prompt.
 /// </summary>
 public sealed partial class ScanJobManager : IDisposable
 {
     public static readonly TimeSpan DefaultRetention = TimeSpan.FromMinutes(10);
-    public static readonly TimeSpan ConsentTimeout = TimeSpan.FromMinutes(2);
+
+    /// <summary>A papertrail:// scan that its origin does not claim within this time never starts.</summary>
+    public static readonly TimeSpan DefaultClaimTimeout = TimeSpan.FromSeconds(30);
     private const int MaxJobs = 32;
 
     private readonly IScannerBackend _backend;
-    private readonly IConsentService _consent;
     private readonly OriginRegistry _origins;
     private readonly TimeProvider _time;
     private readonly TimeSpan _retention;
+    private readonly TimeSpan _claimTimeout;
     private readonly ConcurrentDictionary<string, ScanJob> _jobs = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _scanLock = new(1, 1);
     private readonly ITimer _purgeTimer;
@@ -42,18 +43,18 @@ public sealed partial class ScanJobManager : IDisposable
 
     public ScanJobManager(
         IScannerBackend backend,
-        IConsentService consent,
         OriginRegistry origins,
         TimeProvider? time = null,
         TimeSpan? retention = null,
+        TimeSpan? claimTimeout = null,
         ILogger<ScanJobManager>? logger = null)
     {
         _logger = logger ?? NullLogger<ScanJobManager>.Instance;
         _backend = backend;
-        _consent = consent;
         _origins = origins;
         _time = time ?? TimeProvider.System;
         _retention = retention ?? DefaultRetention;
+        _claimTimeout = claimTimeout ?? DefaultClaimTimeout;
         _purgeTimer = _time.CreateTimer(_ => PurgeExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
@@ -104,6 +105,17 @@ public sealed partial class ScanJobManager : IDisposable
     public ScanJob? Get(string id, string origin) =>
         _jobs.TryGetValue(id, out var job) && job.Origin == origin ? job : null;
 
+    /// <summary>
+    /// Like <see cref="Get"/>, and lets a papertrail:// job start: the request now comes with a
+    /// browser-verified Origin, which proves the link was opened by that site's page.
+    /// </summary>
+    public ScanJob? Claim(string id, string origin)
+    {
+        var job = Get(id, origin);
+        job?.Claim();
+        return job;
+    }
+
     public IReadOnlyList<ScanJob> List() => _jobs.Values.OrderBy(j => j.CreatedAt).ToArray();
 
     public bool Delete(string id, string origin)
@@ -145,7 +157,18 @@ public sealed partial class ScanJobManager : IDisposable
         var ct = job.Cancellation.Token;
         try
         {
+            if (!job.IsClaimed)
+            {
+                await job.Claimed.WaitAsync(_claimTimeout, _time, ct).ConfigureAwait(false);
+            }
+
             await _scanLock.WaitAsync(ct).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogWarning("papertrail:// scan {JobId} for {Origin} was never collected; not scanning", job.Id, job.Origin);
+            Complete(job, ScanJobStatus.Canceled, "not_claimed", "No page from this site collected the scan, so it was not started.");
+            return;
         }
         catch (OperationCanceledException)
         {
@@ -155,36 +178,6 @@ public sealed partial class ScanJobManager : IDisposable
 
         try
         {
-            if (!_origins.ShouldAutoApproveScans(job.Origin))
-            {
-                job.SetStatus(ScanJobStatus.AwaitingConsent);
-                string scannerName = await DescribeScannerAsync(job.Options.ScannerId, ct).ConfigureAwait(false);
-                var request = new ScanConsentRequest(job.Origin, scannerName, job.Options, job.Trigger, CanRemember: !_origins.AlwaysConfirmScans);
-
-                using var consentTimeout = CancellationTokenSource.CreateLinkedTokenSource(ct);
-                consentTimeout.CancelAfter(ConsentTimeout);
-                ScanConsent decision;
-                try
-                {
-                    decision = await _consent.RequestScanAsync(request, consentTimeout.Token).ConfigureAwait(false);
-                }
-                catch (OperationCanceledException) when (!ct.IsCancellationRequested)
-                {
-                    decision = ScanConsent.Deny;
-                }
-
-                if (!decision.Allowed)
-                {
-                    Complete(job, ScanJobStatus.Denied, "consent_denied", "The user declined the scan.");
-                    return;
-                }
-
-                if (decision.RememberForOrigin && request.CanRemember)
-                {
-                    _origins.SetAutoApproveScans(job.Origin, true);
-                }
-            }
-
             job.SetStatus(ScanJobStatus.Scanning);
             var pages = await _backend.ScanAsync(job.Options, job.AddPage, ct).ConfigureAwait(false);
             if (pages.Count == 0)
@@ -212,22 +205,6 @@ public sealed partial class ScanJobManager : IDisposable
         finally
         {
             _scanLock.Release();
-        }
-    }
-
-    private async Task<string> DescribeScannerAsync(string? scannerId, CancellationToken ct)
-    {
-        try
-        {
-            var scanners = await _backend.ListScannersAsync(ct).ConfigureAwait(false);
-            var match = scannerId is null
-                ? scanners.FirstOrDefault(s => s.IsDefault) ?? scanners.FirstOrDefault()
-                : scanners.FirstOrDefault(s => s.Id == scannerId);
-            return match?.Name ?? scannerId ?? "the default scanner";
-        }
-        catch (ScannerException)
-        {
-            return scannerId ?? "the default scanner";
         }
     }
 

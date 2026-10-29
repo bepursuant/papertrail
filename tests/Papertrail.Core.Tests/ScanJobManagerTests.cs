@@ -2,6 +2,7 @@ using Papertrail.Configuration;
 using Papertrail.Consent;
 using Papertrail.Jobs;
 using Papertrail.Scanning;
+using Papertrail.Security;
 
 namespace Papertrail.Core.Tests;
 
@@ -35,49 +36,71 @@ public class ScanJobManagerTests
     }
 
     [Fact]
-    public async Task Declined_consent_finishes_as_denied_without_scanning()
+    public async Task Scans_from_a_paired_origin_run_without_any_prompt()
     {
-        var consent = new RecordingConsent(allow: false);
+        var consent = new FixedConsentService(allow: false);
         using var runtime = TestRuntime.Create(consent);
         runtime.Origins.Pair(Origin);
 
-        var job = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api);
+        var jobs = Enumerable.Range(0, 3).Select(_ => runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api)).ToArray();
+        await Task.WhenAll(jobs.Select(j => j.Finished)).WaitAsync(TimeSpan.FromSeconds(10));
+
+        Assert.All(jobs, j => Assert.Equal(ScanJobStatus.Completed, j.Status));
+        Assert.Equal(0, consent.PairingRequests);
+    }
+
+    [Fact]
+    public async Task Protocol_scan_starts_the_scanner_only_after_its_origin_claims_it()
+    {
+        var backend = new CountingBackend(TestRuntime.FastMock());
+        using var runtime = TestRuntime.Create(backend: backend);
+        runtime.Origins.Pair(Origin);
+        runtime.Origins.Pair("https://other.example");
+
+        var job = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.ProtocolUrl, ScanJobManager.NewId());
+        await Task.Delay(100);
+        Assert.Null(runtime.Jobs.Claim(job.Id, "https://other.example"));
+        await Task.Delay(100);
+
+        Assert.Equal(ScanJobStatus.Queued, job.Status);
+        Assert.False(job.IsClaimed);
+        Assert.Equal(0, backend.Scans);
+
+        Assert.Same(job, runtime.Jobs.Claim(job.Id, Origin));
         await job.Finished.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(ScanJobStatus.Denied, job.Status);
-        Assert.Equal("consent_denied", job.ErrorCode);
-        Assert.Empty(job.Pages);
-        Assert.Single(consent.ScanRequests);
-        Assert.Equal("Papertrail Mock Feeder (duplex)", consent.ScanRequests[0].ScannerName);
+        Assert.Equal(ScanJobStatus.Completed, job.Status);
+        Assert.Equal(1, backend.Scans);
     }
 
     [Fact]
-    public async Task Remembered_consent_skips_the_prompt_next_time()
+    public async Task Unclaimed_protocol_scan_is_dropped_without_touching_the_scanner()
     {
-        var consent = new RecordingConsent(allow: true, remember: true);
-        using var runtime = TestRuntime.Create(consent);
-        runtime.Origins.Pair(Origin);
+        var backend = new CountingBackend(TestRuntime.FastMock());
+        var origins = new OriginRegistry(new SettingsStore(null), new PapertrailPolicy());
+        origins.Pair(Origin);
+        using var jobs = new ScanJobManager(backend, origins, claimTimeout: TimeSpan.FromMilliseconds(50));
 
-        await runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api).Finished.WaitAsync(TimeSpan.FromSeconds(10));
-        var second = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api);
-        await second.Finished.WaitAsync(TimeSpan.FromSeconds(10));
+        var job = jobs.Start(Origin, new ScanOptions(), ScanTrigger.ProtocolUrl, ScanJobManager.NewId());
+        await job.Finished.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(ScanJobStatus.Completed, second.Status);
-        Assert.Single(consent.ScanRequests);
+        Assert.Equal(ScanJobStatus.Canceled, job.Status);
+        Assert.Equal("not_claimed", job.ErrorCode);
+        Assert.Equal(0, backend.Scans);
     }
 
     [Fact]
-    public async Task Policy_can_force_a_prompt_for_every_scan()
+    public async Task Unclaimed_protocol_scan_does_not_block_api_scans()
     {
-        var consent = new RecordingConsent(allow: true, remember: true);
-        using var runtime = TestRuntime.Create(consent, new PapertrailPolicy { AlwaysConfirmScans = true });
+        using var runtime = TestRuntime.Create();
         runtime.Origins.Pair(Origin);
 
-        await runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api).Finished.WaitAsync(TimeSpan.FromSeconds(10));
-        await runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api).Finished.WaitAsync(TimeSpan.FromSeconds(10));
+        var pending = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.ProtocolUrl, ScanJobManager.NewId());
+        var api = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api);
+        await api.Finished.WaitAsync(TimeSpan.FromSeconds(10));
 
-        Assert.Equal(2, consent.ScanRequests.Count);
-        Assert.All(consent.ScanRequests, r => Assert.False(r.CanRemember));
+        Assert.Equal(ScanJobStatus.Completed, api.Status);
+        Assert.Equal(ScanJobStatus.Queued, pending.Status);
     }
 
     [Fact]
@@ -138,18 +161,20 @@ public class ScanJobManagerTests
     }
 
     [Fact]
-    public async Task Delete_cancels_a_scan_waiting_for_consent()
+    public async Task Delete_cancels_a_scan_that_has_not_started()
     {
-        using var runtime = TestRuntime.Create(new SilentConsent());
+        var backend = new CountingBackend(TestRuntime.FastMock());
+        using var runtime = TestRuntime.Create(backend: backend);
         runtime.Origins.Pair(Origin);
 
-        var job = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.Api);
-        await WaitUntil(() => job.Status == ScanJobStatus.AwaitingConsent);
+        var job = runtime.Jobs.Start(Origin, new ScanOptions(), ScanTrigger.ProtocolUrl, ScanJobManager.NewId());
         Assert.True(runtime.Jobs.Delete(job.Id, Origin));
         await job.Finished.WaitAsync(TimeSpan.FromSeconds(10));
+        await Task.Delay(50);
 
         Assert.Equal(ScanJobStatus.Canceled, job.Status);
         Assert.Null(runtime.Jobs.Get(job.Id, Origin));
+        Assert.Equal(0, backend.Scans);
     }
 
     [Fact]
@@ -183,16 +208,6 @@ public class ScanJobManagerTests
 
         Assert.All(jobs, j => Assert.Equal(ScanJobStatus.Completed, j.Status));
         Assert.Equal(1, backend.MaxConcurrent);
-    }
-
-    private static async Task WaitUntil(Func<bool> condition)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(10);
-        while (!condition())
-        {
-            Assert.True(DateTime.UtcNow < deadline, "condition not met in time");
-            await Task.Delay(10);
-        }
     }
 
     private sealed class ConcurrencyProbe : IScannerBackend

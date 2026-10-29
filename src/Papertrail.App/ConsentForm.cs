@@ -1,15 +1,11 @@
 using Papertrail.Consent;
-using Papertrail.Jobs;
-using Papertrail.Scanning;
 
 namespace Papertrail.App;
 
-/// <summary>Pairing and per-scan confirmation dialog. Closing it any other way counts as "no".</summary>
+/// <summary>One-time website approval dialog. Closing it any other way counts as "no".</summary>
 internal sealed class ConsentForm : Form
 {
-    private readonly CheckBox? _remember;
-
-    private ConsentForm(string heading, string origin, string details, string approveText, string denyText, string? rememberText)
+    private ConsentForm(string heading, string origin, string details, string approveText, string denyText)
     {
         Text = "papertrail";
         FormBorderStyle = FormBorderStyle.FixedDialog;
@@ -54,12 +50,6 @@ internal sealed class ConsentForm : Form
             Margin = new Padding(0, 0, 0, 12),
         });
 
-        if (rememberText is not null)
-        {
-            _remember = new CheckBox { Text = rememberText, AutoSize = true, Margin = new Padding(0, 0, 0, 12) };
-            layout.Controls.Add(_remember);
-        }
-
         var approve = new Button { Text = approveText, AutoSize = true, MinimumSize = new Size(96, 30) };
         var deny = new Button { Text = denyText, AutoSize = true, MinimumSize = new Size(96, 30) };
         approve.Click += (_, _) =>
@@ -83,41 +73,11 @@ internal sealed class ConsentForm : Form
 
     public bool Approved { get; private set; }
 
-    public bool Remember => _remember?.Checked == true;
-
     public static ConsentForm ForPairing(PairingRequest request) => new(
         "Allow this website to use your scanners?",
         request.Origin,
-        "The site will be able to list your scanners and ask to scan documents. You will still be asked before each scan unless you choose otherwise. Only allow sites you trust.",
+        "The site will be able to list your scanners and scan documents whenever it asks, without asking you again. "
+            + "Only allow sites you trust. You can remove the site later from \"Approved websites\" in the papertrail tray menu.",
         "Allow",
-        "Don't allow",
-        rememberText: null);
-
-    public static ConsentForm ForScan(ScanConsentRequest request)
-    {
-        var o = request.Options;
-        string mode = o.ColorMode switch
-        {
-            ColorMode.Gray => "grayscale",
-            ColorMode.BlackWhite => "black & white",
-            _ => "color",
-        };
-        string source = o.Source switch
-        {
-            PaperSource.Feeder => "document feeder",
-            PaperSource.Flatbed => "flatbed",
-            _ => "default paper source",
-        };
-        string details = $"wants to scan from {request.ScannerName}: {o.Dpi} dpi, {mode}, {source}{(o.Duplex ? ", both sides" : string.Empty)}."
-            + (request.Trigger == ScanTrigger.ProtocolUrl ? "\n\nThis scan was started from a papertrail:// link." : string.Empty)
-            + "\n\nPlace your document in the scanner, then click Scan.";
-
-        return new ConsentForm(
-            "Scan a document?",
-            request.Origin,
-            details,
-            "Scan",
-            "Cancel",
-            request.CanRemember ? "Don't ask again for this site" : null);
-    }
+        "Don't allow");
 }

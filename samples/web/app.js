@@ -17,7 +17,6 @@ const connection = $('connection');
 
 const STATUS_TEXT = {
   queued: 'Waiting for the scanner…',
-  awaitingConsent: 'Confirm the scan in the papertrail window…',
   scanning: 'Scanning…',
 };
 

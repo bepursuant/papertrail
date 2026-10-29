@@ -1,4 +1,5 @@
 using Papertrail.Configuration;
+using Papertrail.Consent;
 using Papertrail.Hosting;
 using Papertrail.Imaging;
 using Papertrail.Jobs;
@@ -22,14 +23,14 @@ public class RuntimeAndRegistryTests
     [Fact]
     public void Protocol_scan_for_unpaired_origin_is_rejected_and_never_prompts()
     {
-        var consent = new RecordingConsent(allow: true);
+        var consent = new FixedConsentService(allow: true);
         using var runtime = TestRuntime.Create(consent);
 
         var result = runtime.HandleProtocolUrl(PapertrailUri.BuildScan(Origin, ScanJobManager.NewId(), new ScanOptions()));
 
         Assert.Equal(ProtocolOutcome.OriginNotPaired, result.Outcome);
         Assert.Empty(runtime.Jobs.List());
-        Assert.Empty(consent.ScanRequests);
+        Assert.Equal(0, consent.PairingRequests);
     }
 
     [Fact]
@@ -42,7 +43,7 @@ public class RuntimeAndRegistryTests
         var result = runtime.HandleProtocolUrl(PapertrailUri.BuildScan("https://APP.example.com:443", id, new ScanOptions { Source = PaperSource.Flatbed }));
 
         Assert.Equal(ProtocolOutcome.ScanStarted, result.Outcome);
-        var job = runtime.Jobs.Get(id, Origin);
+        var job = runtime.Jobs.Claim(id, Origin);
         Assert.NotNull(job);
         Assert.Equal(ScanTrigger.ProtocolUrl, job.Trigger);
         await job.Finished.WaitAsync(TimeSpan.FromSeconds(10));
@@ -70,11 +71,9 @@ public class RuntimeAndRegistryTests
             Assert.False(registry.IsPaired(Origin));
 
             registry.Pair(Origin);
-            registry.SetAutoApproveScans(Origin, true);
 
             var reloaded = new OriginRegistry(new SettingsStore(path), new PapertrailPolicy());
             Assert.True(reloaded.IsPaired(Origin));
-            Assert.True(reloaded.ShouldAutoApproveScans(Origin));
 
             reloaded.Unpair(Origin);
             Assert.False(new OriginRegistry(new SettingsStore(path), new PapertrailPolicy()).IsPaired(Origin));
@@ -94,11 +93,37 @@ public class RuntimeAndRegistryTests
             File.WriteAllText(path, "{ not json");
             var store = new SettingsStore(path);
             Assert.Empty(store.Snapshot().PairedOrigins);
-            Assert.Equal(PapertrailSettings.DefaultPort, store.Snapshot().Port);
         }
         finally
         {
             File.Delete(path);
+        }
+    }
+
+    [Fact]
+    public void Files_from_v0_1_with_port_and_scan_prompt_settings_still_load_and_the_port_stays_fixed()
+    {
+        string dir = Directory.CreateTempSubdirectory().FullName;
+        try
+        {
+            string settingsPath = Path.Combine(dir, "settings.json");
+            string policyPath = Path.Combine(dir, "policy.json");
+            File.WriteAllText(settingsPath, """{"port": 1234, "pairedOrigins": [{"origin": "https://app.example.com", "pairedAt": "2026-10-01T00:00:00Z", "autoApproveScans": true}]}""");
+            File.WriteAllText(policyPath, """{"port": 4321, "alwaysConfirmScans": true, "allowedOrigins": ["https://corp.example.com"]}""");
+
+            using var runtime = new PapertrailRuntime(
+                TestRuntime.FastMock(),
+                new FixedConsentService(allow: false),
+                new SettingsStore(settingsPath),
+                PapertrailPolicy.Load(policyPath));
+
+            Assert.Equal(PapertrailRuntime.FixedPort, runtime.Port);
+            Assert.True(runtime.Origins.IsPaired(Origin));
+            Assert.True(runtime.Origins.IsPaired("https://corp.example.com"));
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
         }
     }
 

@@ -8,6 +8,9 @@ public sealed class OriginRegistry
 {
     public static readonly TimeSpan DenialCooldown = TimeSpan.FromMinutes(10);
 
+    /// <summary>An unanswered pairing prompt counts as "no" after this long.</summary>
+    public static readonly TimeSpan PairingPromptTimeout = TimeSpan.FromMinutes(2);
+
     private readonly SettingsStore _settings;
     private readonly PapertrailPolicy _policy;
     private readonly TimeProvider _time;
@@ -33,8 +36,6 @@ public sealed class OriginRegistry
 
     public bool AllowInsecureLoopbackOrigins => _policy.AllowInsecureLoopbackOrigins ?? true;
 
-    public bool AlwaysConfirmScans => _policy.AlwaysConfirmScans ?? false;
-
     public bool TryNormalize(string? raw, out string origin) =>
         OriginRules.TryNormalize(raw, AllowInsecureLoopbackOrigins, out origin);
 
@@ -42,9 +43,6 @@ public sealed class OriginRegistry
         _policyOrigins.Contains(origin) || _settings.Snapshot().PairedOrigins.Any(p => p.Origin == origin);
 
     public bool IsPolicyOrigin(string origin) => _policyOrigins.Contains(origin);
-
-    public bool ShouldAutoApproveScans(string origin) =>
-        !AlwaysConfirmScans && _settings.Snapshot().PairedOrigins.Any(p => p.Origin == origin && p.AutoApproveScans);
 
     public IReadOnlyList<PairedOrigin> ListUserPairings() => _settings.Snapshot().PairedOrigins;
 
@@ -64,24 +62,6 @@ public sealed class OriginRegistry
 
     public void Unpair(string origin) =>
         _settings.Update(s => s.PairedOrigins.RemoveAll(p => p.Origin == origin));
-
-    public void SetAutoApproveScans(string origin, bool value)
-    {
-        _settings.Update(s =>
-        {
-            var entry = s.PairedOrigins.FirstOrDefault(p => p.Origin == origin);
-            if (entry is null && _policyOrigins.Contains(origin))
-            {
-                entry = new PairedOrigin { Origin = origin, PairedAt = _time.GetUtcNow() };
-                s.PairedOrigins.Add(entry);
-            }
-
-            if (entry is not null)
-            {
-                entry.AutoApproveScans = value;
-            }
-        });
-    }
 
     public void RecordDenial(string origin) => _deniedUntil[origin] = _time.GetUtcNow() + DenialCooldown;
 

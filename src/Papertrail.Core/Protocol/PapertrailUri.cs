@@ -134,6 +134,7 @@ public static class PapertrailUri
             Append(sb, "maxPages", options.MaxPages.ToString(CultureInfo.InvariantCulture));
         }
 
+        Append(sb, "format", ToCamel(options.Format.ToString()));
         return sb.ToString();
     }
 
@@ -203,6 +204,17 @@ public static class PapertrailUri
             }
 
             options = options with { MaxPages = value };
+        }
+
+        if (p.TryGetValue("format", out string? format))
+        {
+            if (!OutputFormats.TryParse(format, out var value))
+            {
+                error = $"unknown format '{format}'";
+                return false;
+            }
+
+            options = options with { Format = value };
         }
 
         var problems = options.Validate();

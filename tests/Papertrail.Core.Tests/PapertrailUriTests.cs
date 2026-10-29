@@ -21,14 +21,14 @@ public class PapertrailUriTests
     [Fact]
     public void Parses_scan_with_all_options()
     {
-        string url = $"papertrail://scan/?v=1&origin=https%3A%2F%2Fapp.example.com&request={RequestId}&scannerId=My%20Scanner&dpi=300&colorMode=gray&source=feeder&duplex=true&showDriverUi=1&maxPages=5";
+        string url = $"papertrail://scan/?v=1&origin=https%3A%2F%2Fapp.example.com&request={RequestId}&scannerId=My%20Scanner&dpi=300&colorMode=gray&source=feeder&duplex=true&showDriverUi=1&maxPages=5&format=PNG";
 
         Assert.True(PapertrailUri.TryParse(url, out var command, out string? error), error);
         Assert.Equal(ProtocolAction.Scan, command!.Action);
         Assert.Equal("https://app.example.com", command.Origin);
         Assert.Equal(RequestId, command.RequestId);
         Assert.Equal(
-            new ScanOptions { ScannerId = "My Scanner", Dpi = 300, ColorMode = ColorMode.Gray, Source = PaperSource.Feeder, Duplex = true, ShowDriverUi = true, MaxPages = 5 },
+            new ScanOptions { ScannerId = "My Scanner", Dpi = 300, ColorMode = ColorMode.Gray, Source = PaperSource.Feeder, Duplex = true, ShowDriverUi = true, MaxPages = 5, Format = OutputFormat.Png },
             command.Options);
     }
 
@@ -62,6 +62,7 @@ public class PapertrailUriTests
     [InlineData("papertrail://scan?origin=https%3A%2F%2Fa.example&request=0123456789abcdef&colorMode=sepia", "unknown colorMode")]
     [InlineData("papertrail://scan?origin=https%3A%2F%2Fa.example&request=0123456789abcdef&source=1", "unknown source")]
     [InlineData("papertrail://scan?origin=https%3A%2F%2Fa.example&request=0123456789abcdef&duplex=maybe", "duplex must be true or false")]
+    [InlineData("papertrail://scan?origin=https%3A%2F%2Fa.example&request=0123456789abcdef&format=pdf", "unknown format 'pdf'")]
     public void Rejects_invalid_urls(string url, string expectedError)
     {
         Assert.False(PapertrailUri.TryParse(url, out _, out string? error));

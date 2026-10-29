@@ -18,6 +18,38 @@ public enum PaperSource
     Feeder,
 }
 
+/// <summary>
+/// What the client downloads. Only <see cref="Png"/> (one image per page) exists today. A
+/// document format such as PDF would be a new value here plus a case in <see cref="OutputFormats"/>.
+/// </summary>
+[JsonConverter(typeof(CamelCaseEnumConverter<OutputFormat>))]
+public enum OutputFormat
+{
+    Png,
+}
+
+public static class OutputFormats
+{
+    public static string MediaType(OutputFormat format) => format switch
+    {
+        OutputFormat.Png => "image/png",
+        _ => throw new ArgumentOutOfRangeException(nameof(format), format, null),
+    };
+
+    public static bool TryParse(string? value, out OutputFormat format)
+    {
+        switch (value?.ToLowerInvariant())
+        {
+            case "png":
+                format = OutputFormat.Png;
+                return true;
+            default:
+                format = default;
+                return false;
+        }
+    }
+}
+
 public sealed record ScanOptions
 {
     public const int MinDpi = 50;
@@ -40,6 +72,8 @@ public sealed record ScanOptions
 
     /// <summary>0 means no limit.</summary>
     public int MaxPages { get; init; }
+
+    public OutputFormat Format { get; init; } = OutputFormat.Png;
 
     /// <summary>Returns a list of validation problems; empty when the options are usable.</summary>
     public IReadOnlyList<string> Validate()
@@ -68,6 +102,11 @@ public sealed record ScanOptions
         if (!Enum.IsDefined(Source))
         {
             errors.Add("source is not supported.");
+        }
+
+        if (!Enum.IsDefined(Format))
+        {
+            errors.Add("format is not supported.");
         }
 
         return errors;

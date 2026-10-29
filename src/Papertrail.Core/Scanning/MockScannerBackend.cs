@@ -116,7 +116,13 @@ public sealed class MockScannerBackend : IScannerBackend
         string footer = $"{options.Dpi} DPI  {mode}  {(feeder ? "FEEDER" : "FLATBED")}";
         canvas.DrawText(footer, margin, height - (margin * 2), unit * 2, ink);
 
-        byte[] png = canvas.ToPng(grayscale: options.ColorMode != ColorMode.Color, threshold: options.ColorMode == ColorMode.BlackWhite);
-        return new ScannedPage(index, "image/png", width, height, png);
+        bool grayscale = options.ColorMode != ColorMode.Color;
+        bool threshold = options.ColorMode == ColorMode.BlackWhite;
+        byte[] data = options.Format switch
+        {
+            OutputFormat.Png => canvas.ToPng(grayscale, threshold),
+            _ => throw new ScannerException("unsupported_format", $"The mock scanner cannot produce {options.Format}."),
+        };
+        return new ScannedPage(index, OutputFormats.MediaType(options.Format), width, height, data);
     }
 }

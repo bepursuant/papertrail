@@ -8,15 +8,17 @@
 //   };
 //
 // Call scan()/connect() from a click handler: browsers require a user gesture for the
-// loopback-network permission prompt and for opening papertrail:// links.
+// loopback-network permission prompt and for opening papertrail:// links. After the one-time
+// site approval, scans run without any papertrail prompt.
 
+/** papertrail always listens on this port. Override it only to test against a dev host. */
 export const DEFAULT_PORT = 47115;
-const TERMINAL = new Set(['completed', 'denied', 'failed', 'canceled']);
+const TERMINAL = new Set(['completed', 'failed', 'canceled']);
 const PAIRED_HINT_KEY = 'papertrail.paired';
 
 export class PapertrailError extends Error {
   /**
-   * @param {string} code machine-readable reason, e.g. 'not_running', 'pairing_denied', 'consent_denied'
+   * @param {string} code machine-readable reason, e.g. 'not_running', 'pairing_denied', 'paper_jam'
    * @param {string} message human-readable explanation
    * @param {object} [details]
    */
@@ -31,7 +33,7 @@ export class PapertrailError extends Error {
 export class PapertrailClient {
   /**
    * @param {object} [options]
-   * @param {number} [options.port=47115]
+   * @param {number} [options.port=47115] only for testing against a dev host on another port
    * @param {number} [options.pollIntervalMs=500]
    * @param {number} [options.launchTimeoutMs=20000] how long to wait for the app after opening a papertrail:// link
    * @param {number} [options.scanTimeoutMs=600000]
@@ -114,7 +116,7 @@ export class PapertrailClient {
 
   /**
    * Scans and returns the pages as Blobs.
-   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages
+   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages, format ('png')
    * @param {object} [hooks]
    * @param {(job: object) => void} [hooks.onProgress] called with each status update
    * @param {AbortSignal} [hooks.signal]
@@ -271,7 +273,7 @@ export class PapertrailClient {
 /** Builds a papertrail://scan URL. Parameter names match the POST /v1/scans body. */
 export function buildScanUrl(origin, requestId, options = {}) {
   const params = new URLSearchParams({ v: '1', origin, request: requestId });
-  for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'showDriverUi', 'maxPages']) {
+  for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'showDriverUi', 'maxPages', 'format']) {
     if (options[key] !== undefined && options[key] !== null) params.set(key, String(options[key]));
   }
   return `papertrail://scan?${params}`;

@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.IO;
 using Papertrail.Hosting;
 
@@ -18,6 +19,11 @@ internal static class Program
             return RunRegistration(options, exePath);
         }
 
+        if (options.Exit)
+        {
+            return StopRunningInstance();
+        }
+
         using var mutex = new Mutex(initiallyOwned: true, MutexName, out bool isPrimary);
         if (!isPrimary)
         {
@@ -32,6 +38,37 @@ internal static class Program
         ApplicationConfiguration.Initialize();
         using var context = new TrayApplicationContext(options);
         Application.Run(context);
+        return 0;
+    }
+
+    /// <summary>
+    /// Run by the MSI before it replaces or removes files: asks the instance in this session to
+    /// quit, waits for its process to end, and kills it if it hangs.
+    /// </summary>
+    private static int StopRunningInstance()
+    {
+        using var self = Process.GetCurrentProcess();
+        var running = Process.GetProcessesByName(self.ProcessName)
+            .Where(p => p.Id != self.Id && p.SessionId == self.SessionId)
+            .ToArray();
+        if (running.Length == 0)
+        {
+            return 0;
+        }
+
+        SingleInstanceChannel.TrySendAsync([AppOptions.ExitCommand]).GetAwaiter().GetResult();
+        foreach (var process in running)
+        {
+            using (process)
+            {
+                if (!process.WaitForExit(TimeSpan.FromSeconds(10)))
+                {
+                    process.Kill();
+                    process.WaitForExit(TimeSpan.FromSeconds(5));
+                }
+            }
+        }
+
         return 0;
     }
 
@@ -78,6 +115,9 @@ internal static class Program
 
 internal sealed class AppOptions
 {
+    /// <summary>Sent over the single-instance pipe to make the running instance quit.</summary>
+    public const string ExitCommand = "--exit";
+
     public List<string> Urls { get; } = [];
 
     public bool Register { get; private set; }
@@ -87,6 +127,8 @@ internal sealed class AppOptions
     public bool AutoStart { get; private set; }
 
     public bool Quiet { get; private set; }
+
+    public bool Exit { get; private set; }
 
     public bool UseMockScanner { get; private set; }
 
@@ -115,6 +157,7 @@ internal sealed class AppOptions
                 case "--quiet": options.Quiet = true; break;
                 case "--mock": options.UseMockScanner = true; break;
                 case "--background": options.Background = true; break;
+                case ExitCommand: options.Exit = true; break;
             }
         }
 

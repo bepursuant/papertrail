@@ -8,7 +8,13 @@
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
-    <RuntimeIdentifiers>win-x86;win-x64</RuntimeIdentifiers>
+    <!-- 32-bit only: a process only sees TWAIN drivers of its own bitness, and 32-bit drivers are the common case. -->
+    <RuntimeIdentifier>win-x86</RuntimeIdentifier>
+    <!-- `dotnet publish` makes one framework-dependent Papertrail.exe. It needs the x86 .NET Desktop
+         Runtime and ASP.NET Core Runtime 10; the MSI checks for both. -->
+    <SelfContained>false</SelfContained>
+    <PublishSingleFile>true</PublishSingleFile>
+    <DebugType>embedded</DebugType>
   </PropertyGroup>
 
   <ItemGroup>

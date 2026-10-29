@@ -4,10 +4,6 @@ namespace Papertrail.Configuration;
 
 public sealed class PapertrailSettings
 {
-    public const int DefaultPort = 47115;
-
-    public int Port { get; set; } = DefaultPort;
-
     public List<PairedOrigin> PairedOrigins { get; set; } = [];
 }
 
@@ -16,9 +12,6 @@ public sealed class PairedOrigin
     public required string Origin { get; set; }
 
     public DateTimeOffset PairedAt { get; set; }
-
-    /// <summary>The user ticked "don't ask again" for scans from this site.</summary>
-    public bool AutoApproveScans { get; set; }
 }
 
 /// <summary>
@@ -35,11 +28,6 @@ public sealed class PapertrailPolicy
 
     /// <summary>Accept http://localhost and http://127.0.0.1 pages (development). Default true.</summary>
     public bool? AllowInsecureLoopbackOrigins { get; set; }
-
-    /// <summary>When true, every scan needs confirmation and "don't ask again" is disabled.</summary>
-    public bool? AlwaysConfirmScans { get; set; }
-
-    public int? Port { get; set; }
 
     public static PapertrailPolicy Load(string? path)
     {

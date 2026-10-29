@@ -66,6 +66,12 @@ test('e2e: papertrail://scan forwarded from a second process is collected by req
   assert.equal(result.pages.length, 1);
 });
 
+test('e2e: formats other than png are rejected', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
+  const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null });
+  await client.connect({ launch: false });
+  await assert.rejects(client._json('POST', '/v1/scans', { format: 'pdf' }), (err) => err.code === 'invalid_options');
+});
+
 test('e2e: another origin cannot collect the result', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
   const owner = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null });
   await owner.connect({ launch: false });

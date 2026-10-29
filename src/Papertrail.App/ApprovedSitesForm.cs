@@ -26,9 +26,8 @@ internal sealed class ApprovedSitesForm : Form
             FullRowSelect = true,
             MultiSelect = false,
         };
-        _list.Columns.Add("Website", 300);
-        _list.Columns.Add("Approved", 140);
-        _list.Columns.Add("Scan prompt", 120);
+        _list.Columns.Add("Website", 380);
+        _list.Columns.Add("Approved", 180);
         _list.SelectedIndexChanged += (_, _) => UpdateButtons();
 
         _remove = new Button { Text = "Remove", AutoSize = true, Enabled = false };
@@ -51,18 +50,18 @@ internal sealed class ApprovedSitesForm : Form
         _list.Items.Clear();
         foreach (string origin in _origins.PolicyOrigins.Order(StringComparer.Ordinal))
         {
-            _list.Items.Add(new ListViewItem([origin, "by administrator", _origins.ShouldAutoApproveScans(origin) ? "off" : "on"]) { Tag = null });
+            _list.Items.Add(new ListViewItem([origin, "by administrator"]) { Tag = null });
         }
 
         foreach (var paired in _origins.ListUserPairings().Where(p => !_origins.IsPolicyOrigin(p.Origin)).OrderBy(p => p.Origin, StringComparer.Ordinal))
         {
             string when = paired.PairedAt.ToLocalTime().ToString("g", CultureInfo.CurrentCulture);
-            _list.Items.Add(new ListViewItem([paired.Origin, when, paired.AutoApproveScans && !_origins.AlwaysConfirmScans ? "off" : "on"]) { Tag = paired.Origin });
+            _list.Items.Add(new ListViewItem([paired.Origin, when]) { Tag = paired.Origin });
         }
 
         if (_list.Items.Count == 0)
         {
-            _list.Items.Add(new ListViewItem(["No websites approved yet.", string.Empty, string.Empty]) { ForeColor = SystemColors.GrayText });
+            _list.Items.Add(new ListViewItem(["No websites approved yet.", string.Empty]) { ForeColor = SystemColors.GrayText });
         }
 
         UpdateButtons();

@@ -108,7 +108,7 @@ public sealed class TwainScannerBackend : IScannerBackend, IDisposable
                     return;
                 }
 
-                var page = ToPngPage(native, pages.Count);
+                var page = ToPage(native, pages.Count, options.Format);
                 pages.Add(page);
                 onPage?.Invoke(page);
             }
@@ -245,6 +245,11 @@ public sealed class TwainScannerBackend : IScannerBackend, IDisposable
 
         TrySet(caps.CapDuplexEnabled, options.Duplex ? BoolType.True : BoolType.False, "duplex");
         TrySet(caps.CapXferCount, options.MaxPages > 0 ? options.MaxPages : -1, "page count");
+        if (!options.ShowDriverUi)
+        {
+            // Many drivers otherwise pop up a progress window (some wait for a click) on every scan.
+            TrySet(caps.CapIndicators, BoolType.False, "progress indicators");
+        }
     }
 
     private void TrySet<T>(ICapWrapper<T> cap, T value, string what)
@@ -267,11 +272,17 @@ public sealed class TwainScannerBackend : IScannerBackend, IDisposable
         }
     }
 
-    private static ScannedPage ToPngPage(Stream native, int index)
+    private static ScannedPage ToPage(Stream native, int index, OutputFormat format)
     {
+        var encoding = format switch
+        {
+            OutputFormat.Png => ImageFormat.Png,
+            _ => throw new ScannerException("unsupported_format", $"papertrail cannot produce {format} pages."),
+        };
+
         using var image = Image.FromStream(native);
-        using var png = new MemoryStream();
-        image.Save(png, ImageFormat.Png);
-        return new ScannedPage(index, "image/png", image.Width, image.Height, png.ToArray());
+        using var output = new MemoryStream();
+        image.Save(output, encoding);
+        return new ScannedPage(index, OutputFormats.MediaType(format), image.Width, image.Height, output.ToArray());
     }
 }
