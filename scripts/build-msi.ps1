@@ -97,7 +97,15 @@ try {
     Invoke-Checked dotnet @('wix', 'build', 'installer/Papertrail.wxs', 'installer/Dialogs.wxs', '-arch', 'x86',
         '-d', "ProductVersion=$Version", '-d', "PublishDir=$publishDir", '-o', $msi)
     if (-not $SkipValidation) {
-        Invoke-Checked dotnet @('wix', 'msi', 'validate', $msi)
+        $suppressedIces = @(
+            # ICE61: MajorUpgrade AllowSameVersionUpgrades is on purpose, so rebuilds with the same
+            # version replace each other instead of installing side by side.
+            '-sice', 'ICE61',
+            # ICE91: the package is per-user only, so per-user profile paths (LocalAppData,
+            # Programs menu) are correct; ICE91 only matters for packages that may install per-machine.
+            '-sice', 'ICE91'
+        )
+        Invoke-Checked dotnet (@('wix', 'msi', 'validate') + $suppressedIces + $msi)
     }
     Invoke-Sign $msi 'papertrail installer'
 
