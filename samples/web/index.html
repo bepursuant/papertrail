@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>papertrail demo - scan from your browser</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect x='6' y='3' width='20' height='26' rx='3' fill='white' stroke='%232563eb' stroke-width='2.5'/%3E%3Cpath d='M11 11h10M11 16h10M11 21h6' stroke='%2393c5fd' stroke-width='2'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo" aria-hidden="true"></span>
+      <span>papertrail</span>
+      <span class="tag">demo</span>
+    </div>
+    <div id="connection" class="pill pill-unknown" role="status" aria-live="polite">Checking…</div>
+  </header>
+
+  <main class="layout">
+    <section class="panel controls" aria-labelledby="scan-heading">
+      <h1 id="scan-heading">Scan a document</h1>
+      <p class="lede">This page asks the papertrail app on your computer to scan with your TWAIN scanner and sends the pages back here. Nothing is uploaded anywhere.</p>
+
+      <form id="scan-form" novalidate>
+        <label class="field">
+          <span>Scanner</span>
+          <div class="row">
+            <select id="scanner" name="scannerId" disabled>
+              <option value="">Default scanner</option>
+            </select>
+            <button type="button" id="connect" class="secondary">Connect</button>
+          </div>
+        </label>
+
+        <div class="grid2">
+          <label class="field">
+            <span>Resolution</span>
+            <select name="dpi">
+              <option value="150">150 dpi (fast)</option>
+              <option value="200" selected>200 dpi</option>
+              <option value="300">300 dpi (archive)</option>
+              <option value="600">600 dpi (photo)</option>
+            </select>
+          </label>
+          <label class="field">
+            <span>Paper source</span>
+            <select name="source">
+              <option value="auto" selected>Automatic</option>
+              <option value="feeder">Document feeder</option>
+              <option value="flatbed">Flatbed glass</option>
+            </select>
+          </label>
+        </div>
+
+        <fieldset class="field segmented">
+          <legend>Color</legend>
+          <label><input type="radio" name="colorMode" value="color" checked /><span>Color</span></label>
+          <label><input type="radio" name="colorMode" value="gray" /><span>Grayscale</span></label>
+          <label><input type="radio" name="colorMode" value="blackWhite" /><span>Black &amp; white</span></label>
+        </fieldset>
+
+        <label class="check"><input type="checkbox" name="duplex" /> Scan both sides (duplex)</label>
+        <label class="check"><input type="checkbox" name="showDriverUi" /> Use the scanner's own settings dialog</label>
+
+        <button type="submit" id="scan" class="primary">Scan</button>
+        <p id="progress" class="progress" aria-live="polite"></p>
+      </form>
+
+      <div id="error" class="notice error" role="alert" hidden></div>
+
+      <details class="howto">
+        <summary>How this works</summary>
+        <ol>
+          <li>The page talks to papertrail at <code>http://127.0.0.1:47115</code>. Your browser may ask to let this site reach apps on your device. Allow it.</li>
+          <li>The first time, papertrail asks you to approve this website. After that, Scan starts the scanner straight away.</li>
+          <li>If papertrail is not running, the page opens a <code>papertrail://</code> link to start it.</li>
+        </ol>
+      </details>
+    </section>
+
+    <section class="panel results" aria-labelledby="results-heading">
+      <div class="results-head">
+        <h2 id="results-heading">Pages</h2>
+        <button type="button" id="clear" class="ghost" hidden>Clear</button>
+      </div>
+      <div id="empty" class="empty">
+        <div class="empty-art" aria-hidden="true"></div>
+        <p>Scanned pages will appear here.</p>
+      </div>
+      <ol id="pages" class="pages"></ol>
+    </section>
+  </main>
+
+  <footer class="foot">papertrail sample page. Uses <code>clients/js/papertrail.js</code>.</footer>
+
+  <script type="module" src="app.js"></script>
+</body>
+</html>

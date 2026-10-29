@@ -1,0 +1,17 @@
+{
+  "name": "@papertrail/client",
+  "version": "0.1.0",
+  "description": "Browser client for the papertrail local scanning bridge",
+  "type": "module",
+  "main": "papertrail.js",
+  "types": "papertrail.d.ts",
+  "files": [
+    "papertrail.js",
+    "papertrail.d.ts"
+  ],
+  "scripts": {
+    "test": "node --test \"test/*.test.mjs\""
+  },
+  "license": "UNLICENSED",
+  "private": true
+}

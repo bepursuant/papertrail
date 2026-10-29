@@ -1,0 +1,198 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Installer screens, authored here instead of using the WiX UI extension so the MSI contains no
+  WiX code or custom-action DLLs. Full UI only; silent (/qn) and basic (/qb) installs skip all of
+  this and rely on the launch condition in Papertrail.wxs.
+
+  Flow: runtime check (only if a runtime is missing) > license > progress > finished.
+  Running the MSI again when papertrail is installed offers Repair; uninstalling is done from
+  Settings > Apps (msiexec /x), which runs this UI with REMOVE=ALL.
+
+  The license text is License.rtf next to this file.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Fragment>
+    <StandardDirectory Id="SystemFolder" />
+    <EnsureTable Id="ListBox" />
+
+    <!-- Plain EXE custom actions run from System32 (SysWOW64 for this 32-bit package). -->
+    <CustomAction Id="PT_OpenDesktopRuntimeDownload" Directory="SystemFolder" Execute="immediate" Return="asyncNoWait"
+        ExeCommand="&quot;[SystemFolder]rundll32.exe&quot; url.dll,FileProtocolHandler https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe" />
+    <CustomAction Id="PT_OpenAspNetRuntimeDownload" Directory="SystemFolder" Execute="immediate" Return="asyncNoWait"
+        ExeCommand="&quot;[SystemFolder]rundll32.exe&quot; url.dll,FileProtocolHandler https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe" />
+    <!-- Dialog buttons can't re-run AppSearch, so "Check again" reopens the installer, which searches afresh. -->
+    <CustomAction Id="PT_Relaunch" Directory="SystemFolder" Execute="immediate" Return="asyncNoWait"
+        ExeCommand="&quot;[SystemFolder]msiexec.exe&quot; /i &quot;[OriginalDatabase]&quot; AUTOSTART=[AUTOSTART] LAUNCHAPP=[LAUNCHAPP]" />
+
+    <UI Id="PapertrailUI">
+      <TextStyle Id="PT_Normal" FaceName="Segoe UI" Size="9" />
+      <TextStyle Id="PT_Bold" FaceName="Segoe UI" Size="9" Bold="yes" />
+      <TextStyle Id="PT_Title" FaceName="Segoe UI" Size="12" Bold="yes" />
+      <Property Id="DefaultUIFont" Value="PT_Normal" />
+      <Property Id="ErrorDialog" Value="PT_ErrorDlg" />
+
+      <Dialog Id="PT_RuntimeDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Install Microsoft .NET first" />
+        <Control Id="Intro" Type="Text" X="15" Y="36" Width="340" Height="30" NoPrefix="yes"
+            Text="papertrail needs these free Microsoft components. Install each one marked Missing. Get the 32-bit (x86) versions shown here, even on 64-bit Windows: the buttons download exactly those." />
+
+        <Control Id="DesktopName" Type="Text" X="15" Y="78" Width="190" Height="15" NoPrefix="yes" Text="{\PT_Bold}.NET Desktop Runtime 10 (x86)" />
+        <Control Id="DesktopMissing" Type="Text" X="210" Y="78" Width="55" Height="15" NoPrefix="yes" Text="Missing" HideCondition="DESKTOPRUNTIME" ShowCondition="NOT DESKTOPRUNTIME" />
+        <Control Id="DesktopFound" Type="Text" X="210" Y="78" Width="55" Height="15" NoPrefix="yes" Text="Installed" Hidden="yes" ShowCondition="DESKTOPRUNTIME" />
+        <Control Id="DesktopDownload" Type="PushButton" X="270" Y="75" Width="85" Height="17" Text="&amp;Download" HideCondition="DESKTOPRUNTIME" ShowCondition="NOT DESKTOPRUNTIME">
+          <Publish Event="DoAction" Value="PT_OpenDesktopRuntimeDownload" />
+        </Control>
+
+        <Control Id="AspNetName" Type="Text" X="15" Y="102" Width="190" Height="15" NoPrefix="yes" Text="{\PT_Bold}ASP.NET Core Runtime 10 (x86)" />
+        <Control Id="AspNetMissing" Type="Text" X="210" Y="102" Width="55" Height="15" NoPrefix="yes" Text="Missing" HideCondition="ASPNETRUNTIME" ShowCondition="NOT ASPNETRUNTIME" />
+        <Control Id="AspNetFound" Type="Text" X="210" Y="102" Width="55" Height="15" NoPrefix="yes" Text="Installed" Hidden="yes" ShowCondition="ASPNETRUNTIME" />
+        <Control Id="AspNetDownload" Type="PushButton" X="270" Y="99" Width="85" Height="17" Text="Do&amp;wnload" HideCondition="ASPNETRUNTIME" ShowCondition="NOT ASPNETRUNTIME">
+          <Publish Event="DoAction" Value="PT_OpenAspNetRuntimeDownload" />
+        </Control>
+
+        <Control Id="Step1" Type="Text" X="15" Y="132" Width="340" Height="15" NoPrefix="yes" Text="1.  Click Download. Your browser saves Microsoft's installer." />
+        <Control Id="Step2" Type="Text" X="15" Y="150" Width="340" Height="28" NoPrefix="yes" Text="2.  Open the downloaded file and click Install. Windows may ask for administrator permission; if you don't have it, ask your IT team to install it." />
+        <Control Id="Step3" Type="Text" X="15" Y="182" Width="340" Height="28" NoPrefix="yes" Text="3.  Click Check again. This window reopens and continues with the papertrail installation once everything is installed." />
+
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="CheckAgain" Type="PushButton" X="214" Y="243" Width="78" Height="17" Default="yes" Text="&amp;Check again">
+          <Publish Property="PT_RELAUNCH" Value="1" Order="1" />
+          <Publish Event="DoAction" Value="PT_Relaunch" Order="2" />
+          <Publish Event="EndDialog" Value="Exit" Order="3" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_LicenseDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Install [ProductName] [ProductVersion]" />
+        <Control Id="Intro" Type="Text" X="15" Y="34" Width="340" Height="15" NoPrefix="yes" Text="Please read the license agreement." />
+        <Control Id="LicenseText" Type="ScrollableText" X="15" Y="52" Width="340" Height="150" Sunken="yes" TabSkip="no">
+          <Text SourceFile="$(sys.SOURCEFILEDIR)License.rtf" />
+        </Control>
+        <Control Id="Accept" Type="CheckBox" X="15" Y="210" Width="340" Height="17" Property="PT_EULAACCEPTED" CheckBoxValue="1" Text="I &amp;accept the license agreement" />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Install" Type="PushButton" X="236" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Install"
+            DisableCondition="NOT PT_EULAACCEPTED" EnableCondition="PT_EULAACCEPTED">
+          <Publish Event="EndDialog" Value="Return" Condition="PT_EULAACCEPTED" />
+        </Control>
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="PT_CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_MaintenanceDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}[ProductName] is already installed" />
+        <Control Id="Repair" Type="PushButton" X="15" Y="50" Width="80" Height="17" Default="yes" Text="&amp;Repair">
+          <Publish Event="ReinstallMode" Value="ecmus" />
+          <Publish Event="Reinstall" Value="ALL" />
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+        <Control Id="RepairText" Type="Text" X="105" Y="52" Width="250" Height="28" NoPrefix="yes" Text="Puts back missing files, the papertrail:// link handler and the Start menu shortcut." />
+        <Control Id="RemoveText" Type="Text" X="15" Y="92" Width="340" Height="28" NoPrefix="yes" Text="To uninstall papertrail, open Settings &gt; Apps &gt; Installed apps, find papertrail and choose Uninstall. Your list of approved websites is kept." />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="Cancel">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_ProgressDlg" Width="370" Height="270" Title="[ProductName] Setup" Modeless="yes">
+        <Control Id="InstallTitle" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Installing [ProductName]"
+            HideCondition="REMOVE ~= &quot;ALL&quot;" ShowCondition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+        <Control Id="RemoveTitle" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Removing [ProductName]" Hidden="yes"
+            ShowCondition="REMOVE ~= &quot;ALL&quot;" />
+        <Control Id="ActionText" Type="Text" X="15" Y="70" Width="340" Height="17" NoPrefix="yes">
+          <Subscribe Event="ActionText" Attribute="Text" />
+        </Control>
+        <Control Id="ProgressBar" Type="ProgressBar" X="15" Y="90" Width="340" Height="12" ProgressBlocks="yes" Text="Progress">
+          <Subscribe Event="SetProgress" Attribute="Progress" />
+        </Control>
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Cancel" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="Cancel">
+          <Publish Event="SpawnDialog" Value="PT_CancelDlg" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_ExitDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="InstalledTitle" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}[ProductName] is installed"
+            HideCondition="REMOVE ~= &quot;ALL&quot;" ShowCondition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+        <Control Id="InstalledText" Type="Text" X="15" Y="40" Width="340" Height="45" NoPrefix="yes"
+            Text="papertrail runs in the notification area (bottom right of the screen) and starts when you sign in. Each website asks you once before it can use your scanner."
+            HideCondition="REMOVE ~= &quot;ALL&quot;" ShowCondition="NOT (REMOVE ~= &quot;ALL&quot;)" />
+        <Control Id="RemovedTitle" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}[ProductName] has been removed" Hidden="yes"
+            ShowCondition="REMOVE ~= &quot;ALL&quot;" />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="&amp;Finish">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_UserExitDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Setup was canceled" />
+        <Control Id="Text" Type="Text" X="15" Y="40" Width="340" Height="30" NoPrefix="yes" Text="Nothing was changed. Run this installer again whenever you're ready." />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="&amp;Close">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_FatalErrorDlg" Width="370" Height="270" Title="[ProductName] Setup">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Setup failed" />
+        <Control Id="Text" Type="Text" X="15" Y="40" Width="340" Height="45" NoPrefix="yes" Text="papertrail could not be installed and nothing was changed. Try again, or send your IT team the log made by: msiexec /i papertrail.msi /l*v papertrail-setup.log" />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Finish" Type="PushButton" X="304" Y="243" Width="56" Height="17" Default="yes" Cancel="yes" Text="&amp;Close">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+      </Dialog>
+
+      <Dialog Id="PT_CancelDlg" Width="260" Height="85" Title="[ProductName] Setup" NoMinimize="yes">
+        <Control Id="Text" Type="Text" X="15" Y="15" Width="230" Height="30" NoPrefix="yes" Text="Cancel the papertrail installation?" />
+        <Control Id="Yes" Type="PushButton" X="132" Y="57" Width="56" Height="17" Text="&amp;Yes">
+          <Publish Event="EndDialog" Value="Exit" />
+        </Control>
+        <Control Id="No" Type="PushButton" X="194" Y="57" Width="56" Height="17" Default="yes" Cancel="yes" Text="&amp;No">
+          <Publish Event="EndDialog" Value="Return" />
+        </Control>
+      </Dialog>
+
+      <!-- Required by Windows Installer (ICE20). Button positions are rearranged by the installer. -->
+      <Dialog Id="PT_ErrorDlg" Width="270" Height="105" Title="[ProductName] Setup" ErrorDialog="yes">
+        <Control Id="ErrorText" Type="Text" X="15" Y="15" Width="240" Height="60" TabSkip="no" NoPrefix="yes" Text="Error" />
+        <Control Id="Y" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Yes"><Publish Event="EndDialog" Value="ErrorYes" /></Control>
+        <Control Id="A" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="Cancel"><Publish Event="EndDialog" Value="ErrorAbort" /></Control>
+        <Control Id="C" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="Cancel"><Publish Event="EndDialog" Value="ErrorCancel" /></Control>
+        <Control Id="I" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Ignore"><Publish Event="EndDialog" Value="ErrorIgnore" /></Control>
+        <Control Id="N" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;No"><Publish Event="EndDialog" Value="ErrorNo" /></Control>
+        <Control Id="O" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="OK"><Publish Event="EndDialog" Value="ErrorOk" /></Control>
+        <Control Id="R" Type="PushButton" X="100" Y="80" Width="56" Height="17" TabSkip="yes" Text="&amp;Retry"><Publish Event="EndDialog" Value="ErrorRetry" /></Control>
+      </Dialog>
+
+      <Dialog Id="FilesInUse" Width="370" Height="270" Title="[ProductName] Setup" KeepModeless="yes">
+        <Control Id="Title" Type="Text" X="15" Y="10" Width="340" Height="20" Transparent="yes" NoPrefix="yes" Text="{\PT_Title}Files in use" />
+        <Control Id="Text" Type="Text" X="15" Y="36" Width="340" Height="30" NoPrefix="yes" Text="Close these applications, then click Retry. Or click Ignore to continue; Windows may then need a restart." />
+        <Control Id="List" Type="ListBox" X="15" Y="70" Width="340" Height="150" Property="FileInUseProcess" Sunken="yes" TabSkip="yes" />
+        <Control Id="Line" Type="Line" X="0" Y="234" Width="370" Height="0" />
+        <Control Id="Retry" Type="PushButton" X="168" Y="243" Width="56" Height="17" Default="yes" Text="&amp;Retry"><Publish Event="EndDialog" Value="Retry" /></Control>
+        <Control Id="Ignore" Type="PushButton" X="236" Y="243" Width="56" Height="17" Text="&amp;Ignore"><Publish Event="EndDialog" Value="Ignore" /></Control>
+        <Control Id="Exit" Type="PushButton" X="304" Y="243" Width="56" Height="17" Cancel="yes" Text="E&amp;xit"><Publish Event="EndDialog" Value="Exit" /></Control>
+      </Dialog>
+
+      <InstallUISequence>
+        <Show Dialog="PT_RuntimeDlg" After="CostFinalize" Condition="NOT Installed AND NOT SKIPRUNTIMECHECK AND NOT (DESKTOPRUNTIME AND ASPNETRUNTIME)" />
+        <Show Dialog="PT_LicenseDlg" After="PT_RuntimeDlg" Condition="NOT Installed AND (SKIPRUNTIMECHECK OR (DESKTOPRUNTIME AND ASPNETRUNTIME))" />
+        <Show Dialog="PT_MaintenanceDlg" After="PT_LicenseDlg" Condition="Installed AND NOT REMOVE AND NOT REINSTALL" />
+        <Show Dialog="PT_ProgressDlg" Before="ExecuteAction" />
+        <Show Dialog="PT_ExitDlg" OnExit="success" />
+        <Show Dialog="PT_UserExitDlg" OnExit="cancel" Condition="NOT PT_RELAUNCH" />
+        <Show Dialog="PT_FatalErrorDlg" OnExit="error" />
+      </InstallUISequence>
+
+      <AdminUISequence>
+        <Show Dialog="PT_ExitDlg" OnExit="success" />
+        <Show Dialog="PT_UserExitDlg" OnExit="cancel" />
+        <Show Dialog="PT_FatalErrorDlg" OnExit="error" />
+      </AdminUISequence>
+    </UI>
+  </Fragment>
+</Wix>
