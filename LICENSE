@@ -1,0 +1,25 @@
+papertrail
+Copyright (c) 2026 Pursuant Solutions. All rights reserved.
+
+*** PLACEHOLDER - NOT LEGAL TEXT - HAVE THIS REVIEWED BY COUNSEL BEFORE ANY RELEASE ***
+
+Intended licensing model (dual license):
+
+  1. Free use for open-source projects.
+     You may use, copy, modify and redistribute papertrail at no charge as part of a project
+     whose own source code is publicly released under an OSI-approved open-source license.
+     [TO DECIDE: exact definition of "open-source project"; which base license implements this
+     (e.g. AGPL-3.0 / GPL-3.0 as the copyleft option, or a source-available license such as
+     PolyForm Noncommercial / PolyForm Free Trial / BUSL with a change date).]
+
+  2. Commercial license for all other use.
+     Any use in or with closed-source, proprietary, internal-business or revenue-generating
+     software requires a paid commercial license from Pursuant Solutions.
+     [TO DECIDE: license terms, pricing, contact address.]
+
+Until the final license text replaces this file, no license is granted beyond evaluation of
+the source code.
+
+Third-party components are licensed under their own terms; see THIRD-PARTY-NOTICES.md.
+Contributions: [TO DECIDE: CLA or DCO, required so contributions can be offered under both
+licenses.]
