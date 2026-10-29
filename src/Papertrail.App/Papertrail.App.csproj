@@ -5,6 +5,10 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <RootNamespace>Papertrail.App</RootNamespace>
     <AssemblyName>Papertrail</AssemblyName>
+    <!-- File description in Explorer and Task Manager, and the app name browsers show in their
+         "Open ...?" prompt for papertrail:// links. It defaults to the assembly name. -->
+    <AssemblyTitle>papertrail</AssemblyTitle>
+    <ApplicationIcon>..\..\branding\papertrail.ico</ApplicationIcon>
     <UseWindowsForms>true</UseWindowsForms>
     <UseWPF>true</UseWPF>
     <ApplicationHighDpiMode>PerMonitorV2</ApplicationHighDpiMode>
@@ -18,6 +22,10 @@
 
   <ItemGroup>
     <FrameworkReference Include="Microsoft.AspNetCore.App" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\branding\papertrail.ico" LogicalName="papertrail.ico" />
   </ItemGroup>
 
   <ItemGroup>

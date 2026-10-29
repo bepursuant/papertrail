@@ -63,6 +63,7 @@ Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes a
 | `clients/js` | Browser client (`papertrail.js` plus `.d.ts`), with unit and end-to-end tests |
 | `samples/web`, `samples/Papertrail.SampleSite` | Demo page and its static host on `http://127.0.0.1:47200` |
 | `installer/` | WiX source for the MSI: `Papertrail.wxs` (package), `Dialogs.wxs` (installer screens), `License.rtf` (license text) |
+| `branding/` | Logo: `logo.svg` (master), `logo-16.svg` (pixel-aligned for 16-40 px), `papertrail.ico` (used by the exe, tray, MSI). `node branding/build-icons.mjs` regenerates the `.ico` and the sample page's copy of the logo with headless Chrome |
 | `tests/` | xUnit tests for Core and the API |
 | `scripts/` | `test.sh` (everything except Windows-only checks), `build-msi.ps1` (Windows: build, sign, validate), `build-msi.sh` (Linux via Wine: unsigned dev build) |
 

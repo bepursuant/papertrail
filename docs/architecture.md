@@ -44,7 +44,7 @@ papertrail lets an HTTPS web app start a document scan on the user's Windows PC 
   - Enterprises can pre-grant via policy (Chrome/Edge LNA allowlist policies; Firefox `LocalNetworkAccess.SkipDomains`).
   - The PNA preflight headers are deprecated; we only echo them.
 - **Iframes** need `allow="loopback-network"` and a matching `Permissions-Policy` on the top-level document.
-- **Protocol prompts.** Chrome/Edge show "Open Papertrail?" (with "always allow *site*"). Firefox shows a handler chooser. These must be triggered from a user gesture. If the handler isn't installed, nothing happens, so the client detects this by timing out. Enterprises can suppress the prompt with `AutoLaunchProtocolsFromOrigins` (Chrome/Edge). With auto-start at sign-in, the app is normally already running, so day-to-day scans go straight to the HTTP API and never show this prompt.
+- **Protocol prompts.** Chrome/Edge show "Open papertrail?" (with "always allow *site*"); the name is the file description of `Papertrail.exe`. Firefox shows a handler chooser. These must be triggered from a user gesture. If the handler isn't installed, nothing happens, so the client detects this by timing out. Enterprises can suppress the prompt with `AutoLaunchProtocolsFromOrigins` (Chrome/Edge). With auto-start at sign-in, the app is normally already running, so day-to-day scans go straight to the HTTP API and never show this prompt.
 - **Sites must be HTTPS.** LNA is auto-denied on insecure public origins.
 
 Steady state for a paired site on a machine where the LNA permission is granted: one click on the page, scan, no dialogs.
@@ -65,7 +65,7 @@ JS client (`clients/js/papertrail.js`, an ES module with no dependencies): `stat
 
 ## 5. Repository layout
 
-`src/Papertrail.Core` (models, URI parser, origin policy, jobs, settings, mock scanner with built-in PNG encoder) · `src/Papertrail.Server` (Kestrel API) · `src/Papertrail.Twain` (NTwain backend) · `src/Papertrail.App` (Windows tray app, dialogs, registry) · `src/Papertrail.DevHost` (cross-platform headless host with the mock scanner) · `samples/Papertrail.SampleSite` + `samples/web` (demo page) · `clients/js` · `installer/` (WiX source) · `scripts/` (tests, MSI build, `test-twain-wine.sh`) · `tests/*` (unit/API tests; `tests/twain-wine`: fake TWAIN source and probe for Wine).
+`src/Papertrail.Core` (models, URI parser, origin policy, jobs, settings, mock scanner with built-in PNG encoder) · `src/Papertrail.Server` (Kestrel API) · `src/Papertrail.Twain` (NTwain backend) · `src/Papertrail.App` (Windows tray app, dialogs, registry) · `src/Papertrail.DevHost` (cross-platform headless host with the mock scanner) · `samples/Papertrail.SampleSite` + `samples/web` (demo page) · `clients/js` · `installer/` (WiX source) · `branding/` (logo SVGs, `papertrail.ico`, icon build script) · `scripts/` (tests, MSI build, `test-twain-wine.sh`) · `tests/*` (unit/API tests; `tests/twain-wine`: fake TWAIN source and probe for Wine).
 
 ## 6. Dependencies and licenses
 
