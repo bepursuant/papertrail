@@ -32,8 +32,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
         _ui = new WindowsFormsSynchronizationContext();
         SynchronizationContext.SetSynchronizationContext(_ui);
 
-        string logDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Papertrail", "logs");
-        _logProvider = new FileLoggerProvider(logDir);
+        _logProvider = new FileLoggerProvider(AppPaths.LogDirectory);
         _loggerFactory = LoggerFactory.Create(b => b.AddProvider(_logProvider).SetMinimumLevel(LogLevel.Information));
         _logger = _loggerFactory.CreateLogger("papertrail");
 
@@ -116,9 +115,28 @@ internal sealed class TrayApplicationContext : ApplicationContext
         menu.Items.Add(autoStart);
 
         menu.Items.Add("Open log folder", null, (_, _) => Process.Start(new ProcessStartInfo(_logProvider.LogDirectory) { UseShellExecute = true }));
+        if (!_options.UseMockScanner)
+        {
+            menu.Items.Add("Diagnose scanner...", null, (_, _) => StartTool("--diagnose-scanner"));
+            menu.Items.Add("Test scan...", null, (_, _) => StartTool("--test-scan"));
+        }
+
         menu.Items.Add(new ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => ExitThread());
         return menu;
+    }
+
+    private void StartTool(string tool)
+    {
+        _logger.LogInformation("Starting {Tool} from the tray menu", tool);
+        try
+        {
+            Process.Start(new ProcessStartInfo(_exePath, tool) { UseShellExecute = false })?.Dispose();
+        }
+        catch (System.ComponentModel.Win32Exception ex)
+        {
+            _logger.LogError(ex, "Could not start {Tool}", tool);
+        }
     }
 
     private void EnsureProtocolRegistration()

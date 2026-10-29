@@ -49,7 +49,7 @@ Status: **proof of concept** for Windows 10/11 workstations (32-bit build, PNG o
 
 `format` is optional and only `png` is accepted for now; the option exists so PDF can be added later without changing the API shape.
 
-Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `paper_jam`, `no_scanners`, `twain_unavailable` and `not_claimed` (a `papertrail://` scan that no page picked up).
+Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `paper_jam`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
 
 ## Repository layout
 
@@ -113,7 +113,7 @@ Requirements:
 
 - Windows 10 or 11 (workstations; terminal servers are not supported).
 - The **32-bit (x86)** [.NET Desktop Runtime 10](https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe) and [ASP.NET Core Runtime 10](https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe). Both are free Microsoft installers (these links download them directly), and the x86 versions are needed even on 64-bit Windows. They install machine-wide, so Windows asks for administrator permission once; IT can push them ahead of papertrail.
-- A scanner with a **32-bit TWAIN** driver from the manufacturer. The driver installs `TWAINDSM.dll`; papertrail does not ship it. Without a scanner, you can install the TWAIN Working Group's *TWAIN2 FreeImage Software Scanner* sample source for testing.
+- A scanner with a **32-bit TWAIN** driver. Vendor drivers usually install `TWAINDSM.dll`; papertrail does not ship it. Without one, Windows' own `twain_32.dll` and its WIA-TWAIN layer (sources named "WIA-…") are used; that works, but with fewer settings. Without a scanner, you can install the TWAIN Working Group's *TWAIN2 FreeImage Software Scanner* sample source for testing.
 
 The MSI is per-user: no administrator rights and no UAC prompt for papertrail itself. Double-clicking `papertrail-<version>-x86.msi` shows:
 
@@ -163,15 +163,32 @@ For CI, run `scripts/build-msi.ps1 -RequireSigning` on a `windows-latest` runner
 
 `dotnet publish src/Papertrail.App -c Release -o artifacts/publish/win-x86` produces a single `Papertrail.exe` (the x86 runtimes above are still needed). Started from any folder, it registers the URL handler for itself on first run.
 
-Command line: `Papertrail.exe [--mock] [--background]`, `--register [--autostart] [--quiet]`, `--unregister`, `--exit` (ask the running instance to quit; used by the MSI). When Windows passes a `papertrail:` URL, all switches are ignored.
+Command line: `Papertrail.exe [--mock] [--background]`, `--register [--autostart] [--quiet]`, `--unregister`, `--exit` (ask the running instance to quit; used by the MSI), and the scanner tools `--diagnose-scanner` and `--test-scan [--dpi=200] [--color=bw|gray|color] [--source=auto|flatbed|feeder] [--scanner=<name>]` (see [Scanner troubleshooting](#scanner-troubleshooting); add `--quiet` to skip the message box). When Windows passes a `papertrail:` URL, all switches are ignored.
 
 Files:
 
 | Path | Contents |
 |---|---|
 | `%APPDATA%\Papertrail\settings.json` | Approved sites |
-| `%LOCALAPPDATA%\Papertrail\logs\papertrail.log` | Log |
+| `%LOCALAPPDATA%\Papertrail\logs\papertrail.log` | Log (rolls over to `papertrail.log.1` at 5 MB) |
+| `%LOCALAPPDATA%\Papertrail\logs\scanner-diagnostics.txt` | Last **Diagnose scanner** report |
+| `%LOCALAPPDATA%\Papertrail\logs\twaindsm.log` | TWAIN manager trace from the scanner tools (only with `TWAINDSM.dll`) |
+| `%LOCALAPPDATA%\Papertrail\logs\test-scan-<n>.png` | Pages from the last **Test scan** |
 | `%ProgramData%\Papertrail\policy.json` | Optional admin policy (see below) |
+
+### Scanner troubleshooting
+
+All logs are in `%LOCALAPPDATA%\Papertrail\logs` (for example `C:\Users\<you>\AppData\Local\Papertrail\logs`); the tray menu's **Open log folder** opens it. Every scan logs each TWAIN step: the TWAIN manager and source in use (name, manufacturer, `.ds` file, whether it is the WIA-TWAIN layer), each setting with its old value, the requested value and the result (with the TWAIN condition code when the scanner rejects it), every state change and transfer. A rejected setting is never fatal: the scanner's own value is used. A scan that makes no progress for 2 minutes (5 while a page transfers or the driver's own window is open) fails with `scan_timeout` instead of hanging the page.
+
+When a scanner misbehaves:
+
+1. Tray menu > **Diagnose scanner...** (or `Papertrail.exe --diagnose-scanner`). It lists the TWAIN managers and sources, opens each source and writes every capability with its allowed and current values to `scanner-diagnostics.txt`. It does not scan.
+2. Tray menu > **Test scan...** (or `Papertrail.exe --test-scan`, with the options above). It scans once without the browser and saves the pages as `test-scan-<n>.png`.
+3. Send `papertrail.log`, `scanner-diagnostics.txt` and, if present, `twaindsm.log` from the log folder.
+
+Both tools run in a separate process, so they work whether or not papertrail is running in the tray; don't start a scan from a website at the same time.
+
+To rerun the TWAIN tests without a scanner on Linux, `scripts/test-twain-wine.sh` builds a fake WIA-style TWAIN source (`tests/twain-wine/fake_wia_source.c`) and scans through it under Wine.
 
 ### Admin policy (optional)
 
@@ -200,7 +217,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 
 ## Known limitations (POC)
 
-- **Not yet tested on Windows with real scanners.** The code was built and tested on Linux. The MSI and its screens were installed, upgraded, repaired and uninstalled under Wine, where the tray app also ran. The TWAIN backend and tray UI have not been run on real Windows.
+- **Barely tested with real scanners.** The MSI and tray app work on Windows; the first real scan (a Samsung all-in-one) hung, which led to the current TWAIN threading. The TWAIN backend is tested under Wine against a fake source (`scripts/test-twain-wine.sh`), not yet against real drivers.
 - PNG output only (PDF is planned). Large color scans at 600 dpi produce big PNGs, and everything is held in memory.
 - 32-bit only, so only 32-bit TWAIN drivers are visible.
 - Canceling a scan stops at the next page boundary. Scans waiting in the driver's own dialog cannot be aborted from the web page.

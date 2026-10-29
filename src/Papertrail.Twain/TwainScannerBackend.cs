@@ -1,288 +1,239 @@
-using System.Drawing;
-using System.Drawing.Imaging;
-using System.IO;
+using System.Globalization;
 using System.Runtime.Versioning;
+using System.Text;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NTwain;
 using NTwain.Data;
 using Papertrail.Scanning;
-using ColorMode = Papertrail.Scanning.ColorMode;
 
 namespace Papertrail.Twain;
 
 /// <summary>
-/// TWAIN scanning through NTwain (MIT). Uses whatever TWAIN DSM the scanner driver installed
-/// (TWAINDSM.dll, or twain_32.dll for 32-bit processes); papertrail does not ship a DSM.
-/// A process only sees data sources of its own bitness.
+/// TWAIN scanning through NTwain (MIT). Uses whatever TWAIN manager the scanner driver installed
+/// (TWAINDSM.dll, or the old twain_32.dll that ships with Windows); papertrail does not ship one.
+/// A process only sees data sources of its own bitness. All TWAIN work runs on one
+/// <see cref="TwainThread"/>; see there for why.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class TwainScannerBackend : IScannerBackend, IDisposable
 {
-    private readonly StaWorker _worker = new("papertrail-twain");
-    private readonly SemaphoreSlim _gate = new(1, 1);
-    private readonly TWIdentity _appId;
-    private readonly ILogger _logger;
+    private static readonly TimeSpan CloseTimeout = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan QueryTimeout = TimeSpan.FromSeconds(60);
+    private static readonly TimeSpan DiagnoseTimeout = TimeSpan.FromMinutes(3);
 
-    public TwainScannerBackend(ILogger<TwainScannerBackend>? logger = null)
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly ILogger _logger;
+    private readonly TwainTimeouts _timeouts;
+    private readonly object _threadLock = new();
+    private TwainThread _thread;
+
+    public TwainScannerBackend(ILogger<TwainScannerBackend>? logger = null, TwainTimeouts? timeouts = null)
     {
         _logger = logger ?? NullLogger<TwainScannerBackend>.Instance;
-        var version = typeof(TwainScannerBackend).Assembly.GetName().Version ?? new Version(0, 1);
-        _appId = TWIdentity.Create(DataGroups.Image, version, "Pursuant Solutions", "papertrail", "papertrail", "papertrail browser scanning bridge");
+        _timeouts = timeouts ?? TwainTimeouts.Default;
+        NTwainLog.Install(_logger);
+        _thread = StartThread();
     }
 
     public string Name => "twain";
 
-    public static string DescribeEnvironment() =>
-        $"TWAIN DSM: {PlatformInfo.Current.ExpectedDsmPath} (exists: {PlatformInfo.Current.DsmExists}), process: {(Environment.Is64BitProcess ? "64" : "32")}-bit";
+    public static string DescribeEnvironment() => TwainDiagnostics.DescribeEnvironment();
 
-    public async Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken)
+    /// <summary>
+    /// Makes TWAINDSM.dll log every TWAIN call to <paramref name="path"/> (overwritten when it loads).
+    /// Has no effect on the old twain_32.dll. Call before the first TWAIN use in the process.
+    /// </summary>
+    public static void EnableManagerLog(string path)
     {
-        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
-        try
+        if (Environment.GetEnvironmentVariable(TwainDiagnostics.DsmLogVariable) is null)
         {
-            return await _worker.InvokeAsync<IReadOnlyList<ScannerInfo>>(() =>
-            {
-                var session = OpenSession();
-                try
-                {
-                    string? defaultName = session.DefaultSource?.Name;
-                    return session
-                        .Select(s => new ScannerInfo(s.Name, s.Name, s.Manufacturer, Name, s.Name == defaultName))
-                        .ToArray();
-                }
-                finally
-                {
-                    session.Close();
-                }
-            }).ConfigureAwait(false);
-        }
-        finally
-        {
-            _gate.Release();
+            Environment.SetEnvironmentVariable(TwainDiagnostics.DsmLogVariable, path);
+            Environment.SetEnvironmentVariable("TWAINDSM_LOGMODE", "w");
         }
     }
+
+    public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
+        RunExclusiveAsync<IReadOnlyList<ScannerInfo>>("list scanners", QueryTimeout, () =>
+        {
+            var session = TwainSessions.Open(CurrentThread, _logger);
+            try
+            {
+                string? defaultName = TwainSessions.SafeDefault(session, _logger)?.Name;
+                var sources = session.ToList();
+                _logger.LogInformation("TWAIN sources ({Count}): {Sources}", sources.Count, string.Join(" | ", sources.Select(TwainDiagnostics.DescribeSource)));
+                return sources.Select(s => new ScannerInfo(s.Name, s.Name, s.Manufacturer, Name, s.Name == defaultName)).ToArray();
+            }
+            finally
+            {
+                TwainSessions.Close(session, _logger);
+            }
+        }, cancellationToken);
 
     public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var thread = CurrentThread;
+        TwainScan scan;
         try
         {
-            var done = await _worker.InvokeAsync(() => BeginScan(options, onPage, cancellationToken)).ConfigureAwait(false);
-            return await done.ConfigureAwait(false);
+            scan = new TwainScan(thread, options, onPage, _logger, _timeouts, cancellationToken);
+            thread.Post(scan.Start);
+        }
+        catch
+        {
+            _gate.Release();
+            throw;
+        }
+
+        try
+        {
+            return await scan.Result.ConfigureAwait(false);
+        }
+        finally
+        {
+            _ = ReleaseWhenClosedAsync(scan.Closed, thread);
+        }
+    }
+
+    /// <summary>
+    /// Writes a report of the TWAIN setup: managers, installed and listed sources, and every
+    /// capability of each source with its values. Opens each source but does not scan.
+    /// </summary>
+    public Task<string> DiagnoseAsync(CancellationToken cancellationToken) =>
+        RunExclusiveAsync("diagnose", DiagnoseTimeout, () =>
+        {
+            var report = new StringBuilder();
+            report.AppendLine(CultureInfo.InvariantCulture, $"papertrail scanner diagnostics, {DateTimeOffset.Now:yyyy-MM-dd HH:mm:ss zzz}");
+            report.AppendLine(CultureInfo.InvariantCulture, $"Environment: {TwainDiagnostics.DescribeEnvironment()}");
+            report.AppendLine("Installed data sources (*.ds):");
+            foreach (string file in TwainDiagnostics.InstalledDataSources())
+            {
+                report.AppendLine(CultureInfo.InvariantCulture, $"  {file}");
+            }
+
+            TwainSession session;
+            try
+            {
+                session = TwainSessions.Open(CurrentThread, _logger);
+            }
+            catch (ScannerException ex)
+            {
+                report.AppendLine(CultureInfo.InvariantCulture, $"Could not open the TWAIN manager: {ex.Message}");
+                return report.ToString();
+            }
+
+            try
+            {
+                report.AppendLine(CultureInfo.InvariantCulture, $"TWAIN manager open, state {session.State}. Loaded: {string.Join("; ", TwainDiagnostics.LoadedTwainModules())}");
+                var sources = session.ToList();
+                report.AppendLine(CultureInfo.InvariantCulture, $"Default source: {TwainSessions.SafeDefault(session, _logger)?.Name ?? "none"}");
+                report.AppendLine(CultureInfo.InvariantCulture, $"Sources ({sources.Count}):");
+                foreach (var source in sources)
+                {
+                    report.AppendLine(CultureInfo.InvariantCulture, $"  {TwainDiagnostics.DescribeSource(source)}");
+                }
+
+                foreach (var source in sources)
+                {
+                    report.AppendLine();
+                    report.AppendLine(CultureInfo.InvariantCulture, $"Source '{source.Name}':");
+                    var rc = source.Open();
+                    if (rc != ReturnCode.Success)
+                    {
+                        report.AppendLine(CultureInfo.InvariantCulture, $"  MSG_OPENDS failed: {rc}, {TwainDiagnostics.ManagerStatus(session)}");
+                        continue;
+                    }
+
+                    report.AppendLine(CultureInfo.InvariantCulture, $"  opened on thread {Environment.CurrentManagedThreadId}, state {session.State}");
+                    report.AppendLine(CultureInfo.InvariantCulture, $"  TWAIN modules loaded: {string.Join("; ", TwainDiagnostics.LoadedTwainModules())}");
+                    report.AppendLine("  Capabilities:");
+                    TwainDiagnostics.DumpCapabilities(source, report);
+                    rc = source.Close();
+                    report.AppendLine(CultureInfo.InvariantCulture, $"  MSG_CLOSEDS: {rc}");
+                }
+            }
+            finally
+            {
+                TwainSessions.Close(session, _logger);
+            }
+
+            string text = report.ToString();
+            _logger.LogInformation("Scanner diagnostics:{NewLine}{Report}", Environment.NewLine, text);
+            return text;
+        }, cancellationToken);
+
+    public void Dispose() => CurrentThread.Dispose();
+
+    private TwainThread CurrentThread
+    {
+        get
+        {
+            lock (_threadLock)
+            {
+                return _thread;
+            }
+        }
+    }
+
+    private TwainThread StartThread()
+    {
+        var thread = new TwainThread("papertrail-twain");
+        _logger.LogInformation("TWAIN thread {Thread} started, parent window 0x{Window:X}. {Environment}",
+            thread.ManagedThreadId, thread.WindowHandle.ToInt64(), TwainDiagnostics.DescribeEnvironment());
+        return thread;
+    }
+
+    private async Task<T> RunExclusiveAsync<T>(string what, TimeSpan timeout, Func<T> work, CancellationToken cancellationToken)
+    {
+        await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
+        var thread = CurrentThread;
+        var task = thread.InvokeAsync(work);
+        try
+        {
+            return await task.WaitAsync(timeout, cancellationToken).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogError("TWAIN did not finish '{What}' within {Timeout}", what, timeout);
+            throw new ScannerException("twain_unresponsive", "The scanner driver stopped responding. Check the scanner; if this keeps happening, restart papertrail.");
+        }
+        finally
+        {
+            _ = ReleaseWhenClosedAsync(task, thread);
+        }
+    }
+
+    /// <summary>
+    /// Holds the gate until TWAIN is closed again, so the next job never meets a half-open source.
+    /// If the TWAIN thread is stuck inside a driver call, later jobs get a new thread.
+    /// </summary>
+    private async Task ReleaseWhenClosedAsync(Task closed, TwainThread thread)
+    {
+        try
+        {
+            await closed.WaitAsync(CloseTimeout).ConfigureAwait(false);
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogError("The TWAIN thread {Thread} is stuck inside the scanner driver; starting a new one. If scanning keeps failing, restart papertrail.", thread.ManagedThreadId);
+            lock (_threadLock)
+            {
+                if (_thread == thread)
+                {
+                    _thread = StartThread();
+                }
+            }
+
+            thread.Dispose();
+        }
+        catch (Exception)
+        {
+            // The work's own exception already went to its caller.
         }
         finally
         {
             _gate.Release();
         }
-    }
-
-    public void Dispose() => _worker.Dispose();
-
-    /// <summary>Runs on the STA worker. Returns a task that completes when the source is disabled.</summary>
-    private Task<IReadOnlyList<ScannedPage>> BeginScan(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken ct)
-    {
-        var completion = new TaskCompletionSource<IReadOnlyList<ScannedPage>>(TaskCreationOptions.RunContinuationsAsynchronously);
-        var pages = new List<ScannedPage>();
-        Exception? transferError = null;
-
-        var session = OpenSession();
-        session.StopOnTransferError = true;
-
-        session.TransferReady += (_, e) =>
-        {
-            if (ct.IsCancellationRequested || (options.MaxPages > 0 && pages.Count >= options.MaxPages))
-            {
-                e.CancelAll = true;
-            }
-        };
-
-        session.DataTransferred += (_, e) =>
-        {
-            try
-            {
-                using var native = e.GetNativeImageStream();
-                if (native is null)
-                {
-                    transferError ??= new ScannerException("unsupported_transfer", "The scanner returned image data papertrail cannot read.");
-                    return;
-                }
-
-                var page = ToPage(native, pages.Count, options.Format);
-                pages.Add(page);
-                onPage?.Invoke(page);
-            }
-            catch (Exception ex)
-            {
-                _logger.LogError(ex, "Failed to convert scanned page");
-                transferError ??= ex;
-            }
-        };
-
-        session.TransferError += (_, e) =>
-        {
-            _logger.LogWarning(e.Exception, "TWAIN transfer error {ReturnCode}", e.ReturnCode);
-            transferError ??= e.Exception ?? new ScannerException("transfer_error", $"The scanner reported an error ({e.ReturnCode}).");
-        };
-
-        // Per the NTwain docs, closing from SourceDisabled is the supported way to end a job.
-        session.SourceDisabled += (_, _) =>
-        {
-            try
-            {
-                session.CurrentSource?.Close();
-                session.Close();
-            }
-            catch (Exception ex)
-            {
-                _logger.LogWarning(ex, "Error while closing TWAIN session");
-            }
-
-            if (ct.IsCancellationRequested)
-            {
-                completion.TrySetCanceled(ct);
-            }
-            else if (pages.Count == 0 && transferError is not null)
-            {
-                completion.TrySetException(transferError as ScannerException
-                    ?? new ScannerException("transfer_error", "The scan failed. Check the scanner and try again.", transferError));
-            }
-            else
-            {
-                completion.TrySetResult(pages);
-            }
-        };
-
-        DataSource? source = null;
-        try
-        {
-            source = PickSource(session, options.ScannerId);
-            var rc = source.Open();
-            if (rc != ReturnCode.Success)
-            {
-                throw new ScannerException("scanner_unavailable", $"Could not open '{source.Name}' ({rc}). Is it switched on and connected?");
-            }
-
-            ApplyCapabilities(source, options);
-
-            rc = source.Enable(options.ShowDriverUi ? SourceEnableMode.ShowUI : SourceEnableMode.NoUI, false, IntPtr.Zero);
-            if (rc != ReturnCode.Success)
-            {
-                throw new ScannerException("scan_not_started", $"'{source.Name}' did not start scanning ({rc}).");
-            }
-        }
-        catch
-        {
-            if (source?.IsOpen == true)
-            {
-                source.Close();
-            }
-
-            session.Close();
-            throw;
-        }
-
-        return completion.Task;
-    }
-
-    private TwainSession OpenSession()
-    {
-        if (!PlatformInfo.Current.IsSupported)
-        {
-            throw new ScannerException("twain_unavailable", "No TWAIN driver manager is installed. Install your scanner's TWAIN driver.");
-        }
-
-        var session = new TwainSession(_appId);
-        var rc = session.Open();
-        if (rc != ReturnCode.Success)
-        {
-            throw new ScannerException("twain_unavailable", $"Could not open the TWAIN driver manager ({rc}).");
-        }
-
-        return session;
-    }
-
-    private static DataSource PickSource(TwainSession session, string? scannerId)
-    {
-        var sources = session.ToList();
-        if (sources.Count == 0)
-        {
-            throw new ScannerException("no_scanners", $"No TWAIN scanners were found for this {(Environment.Is64BitProcess ? "64" : "32")}-bit app.");
-        }
-
-        if (scannerId is not null)
-        {
-            return sources.FirstOrDefault(s => s.Name == scannerId)
-                ?? throw new ScannerException("scanner_not_found", $"Scanner '{scannerId}' was not found.");
-        }
-
-        return session.DefaultSource ?? sources[0];
-    }
-
-    private void ApplyCapabilities(DataSource source, ScanOptions options)
-    {
-        var caps = source.Capabilities;
-        TrySet(caps.ICapXferMech, XferMech.Native, "transfer mechanism");
-        TrySet(caps.ICapPixelType, options.ColorMode switch
-        {
-            ColorMode.Gray => PixelType.Gray,
-            ColorMode.BlackWhite => PixelType.BlackWhite,
-            _ => PixelType.RGB,
-        }, "color mode");
-        TrySet(caps.ICapXResolution, (TWFix32)options.Dpi, "x resolution");
-        TrySet(caps.ICapYResolution, (TWFix32)options.Dpi, "y resolution");
-
-        switch (options.Source)
-        {
-            case PaperSource.Feeder:
-                TrySet(caps.CapFeederEnabled, BoolType.True, "feeder");
-                TrySet(caps.CapAutoFeed, BoolType.True, "auto feed");
-                break;
-            case PaperSource.Flatbed:
-                TrySet(caps.CapFeederEnabled, BoolType.False, "feeder");
-                break;
-        }
-
-        TrySet(caps.CapDuplexEnabled, options.Duplex ? BoolType.True : BoolType.False, "duplex");
-        TrySet(caps.CapXferCount, options.MaxPages > 0 ? options.MaxPages : -1, "page count");
-        if (!options.ShowDriverUi)
-        {
-            // Many drivers otherwise pop up a progress window (some wait for a click) on every scan.
-            TrySet(caps.CapIndicators, BoolType.False, "progress indicators");
-        }
-    }
-
-    private void TrySet<T>(ICapWrapper<T> cap, T value, string what)
-    {
-        try
-        {
-            if (cap.IsSupported && cap.CanSet)
-            {
-                var rc = cap.SetValue(value);
-                if (rc != ReturnCode.Success)
-                {
-                    _logger.LogInformation("Scanner rejected {Setting}={Value} ({ReturnCode}); using its default", what, value, rc);
-                }
-            }
-        }
-        catch (Exception ex)
-        {
-            // Drivers vary widely; a capability we cannot set should not abort the scan.
-            _logger.LogInformation(ex, "Could not set {Setting}", what);
-        }
-    }
-
-    private static ScannedPage ToPage(Stream native, int index, OutputFormat format)
-    {
-        var encoding = format switch
-        {
-            OutputFormat.Png => ImageFormat.Png,
-            _ => throw new ScannerException("unsupported_format", $"papertrail cannot produce {format} pages."),
-        };
-
-        using var image = Image.FromStream(native);
-        using var output = new MemoryStream();
-        image.Save(output, encoding);
-        return new ScannedPage(index, OutputFormats.MediaType(format), image.Width, image.Height, output.ToArray());
     }
 }

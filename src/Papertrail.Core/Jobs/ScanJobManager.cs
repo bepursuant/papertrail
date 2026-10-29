@@ -29,6 +29,12 @@ public sealed partial class ScanJobManager : IDisposable
 
     /// <summary>A papertrail:// scan that its origin does not claim within this time never starts.</summary>
     public static readonly TimeSpan DefaultClaimTimeout = TimeSpan.FromSeconds(30);
+
+    /// <summary>
+    /// Backstop for a backend that never returns. The TWAIN backend has its own, shorter
+    /// no-activity timeout; this one only guarantees the page always gets an answer.
+    /// </summary>
+    public static readonly TimeSpan DefaultScanTimeout = TimeSpan.FromMinutes(15);
     private const int MaxJobs = 32;
 
     private readonly IScannerBackend _backend;
@@ -36,6 +42,7 @@ public sealed partial class ScanJobManager : IDisposable
     private readonly TimeProvider _time;
     private readonly TimeSpan _retention;
     private readonly TimeSpan _claimTimeout;
+    private readonly TimeSpan _scanTimeout;
     private readonly ConcurrentDictionary<string, ScanJob> _jobs = new(StringComparer.Ordinal);
     private readonly SemaphoreSlim _scanLock = new(1, 1);
     private readonly ITimer _purgeTimer;
@@ -47,7 +54,8 @@ public sealed partial class ScanJobManager : IDisposable
         TimeProvider? time = null,
         TimeSpan? retention = null,
         TimeSpan? claimTimeout = null,
-        ILogger<ScanJobManager>? logger = null)
+        ILogger<ScanJobManager>? logger = null,
+        TimeSpan? scanTimeout = null)
     {
         _logger = logger ?? NullLogger<ScanJobManager>.Instance;
         _backend = backend;
@@ -55,6 +63,7 @@ public sealed partial class ScanJobManager : IDisposable
         _time = time ?? TimeProvider.System;
         _retention = retention ?? DefaultRetention;
         _claimTimeout = claimTimeout ?? DefaultClaimTimeout;
+        _scanTimeout = scanTimeout ?? DefaultScanTimeout;
         _purgeTimer = _time.CreateTimer(_ => PurgeExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
@@ -179,7 +188,7 @@ public sealed partial class ScanJobManager : IDisposable
         try
         {
             job.SetStatus(ScanJobStatus.Scanning);
-            var pages = await _backend.ScanAsync(job.Options, job.AddPage, ct).ConfigureAwait(false);
+            var pages = await _backend.ScanAsync(job.Options, job.AddPage, ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
             if (pages.Count == 0)
             {
                 Complete(job, ScanJobStatus.Failed, "no_pages", "The scanner returned no pages. Is there paper in the feeder?");
@@ -191,6 +200,12 @@ public sealed partial class ScanJobManager : IDisposable
         catch (OperationCanceledException)
         {
             Complete(job, ScanJobStatus.Canceled, "canceled", "The scan was canceled.");
+        }
+        catch (TimeoutException)
+        {
+            _logger.LogError("Scan job {JobId} did not finish within {Timeout}; giving up on it", job.Id, _scanTimeout);
+            job.Cancellation.Cancel();
+            Complete(job, ScanJobStatus.Failed, "scan_timeout", "The scanner did not finish the scan. Check the scanner, then try again.");
         }
         catch (ScannerException ex)
         {
