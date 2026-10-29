@@ -25,9 +25,9 @@ public sealed class MockScannerBackend : IScannerBackend
 
     private static readonly IReadOnlyList<ScannerInfo> Scanners =
     [
-        new(FeederId, "Papertrail Mock Feeder (duplex)", "papertrail", "mock", IsDefault: true),
-        new(FlatbedId, "Papertrail Mock Flatbed", "papertrail", "mock", IsDefault: false),
-        new(JammedId, "Papertrail Mock Jammed Scanner", "papertrail", "mock", IsDefault: false),
+        new(FeederId, "papertrail mock feeder (duplex)", "papertrail", "mock", IsDefault: true),
+        new(FlatbedId, "papertrail mock flatbed", "papertrail", "mock", IsDefault: false),
+        new(JammedId, "papertrail mock jammed scanner", "papertrail", "mock", IsDefault: false),
     ];
 
     private readonly MockScannerOptions _options;

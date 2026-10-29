@@ -22,6 +22,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
     private readonly WebApplication _server;
     private readonly SingleInstanceChannel _channel = new();
     private readonly NotifyIcon _tray;
+    private readonly Icon _trayIcon;
     private readonly string _exePath = Environment.ProcessPath ?? Application.ExecutablePath;
     private ApprovedSitesForm? _sitesForm;
     private bool _disposed;
@@ -59,9 +60,10 @@ internal sealed class TrayApplicationContext : ApplicationContext
             b.UseQuietLogging();
         });
 
+        _trayIcon = AppIcon.CreateTrayIcon();
         _tray = new NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _trayIcon,
             Text = "papertrail",
             Visible = true,
             ContextMenuStrip = BuildMenu(),
@@ -88,6 +90,7 @@ internal sealed class TrayApplicationContext : ApplicationContext
             _disposed = true;
             _tray.Visible = false;
             _tray.Dispose();
+            _trayIcon.Dispose();
             Task.Run(() => _channel.DisposeAsync().AsTask()).GetAwaiter().GetResult();
             using (var stopTimeout = new CancellationTokenSource(TimeSpan.FromSeconds(3)))
             {

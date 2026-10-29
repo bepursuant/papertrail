@@ -14,6 +14,7 @@ internal sealed class ApprovedSitesForm : Form
     {
         _origins = origins;
         Text = "papertrail - approved websites";
+        Icon = AppIcon.Window;
         Size = new Size(620, 360);
         MinimumSize = new Size(480, 260);
         StartPosition = FormStartPosition.CenterScreen;

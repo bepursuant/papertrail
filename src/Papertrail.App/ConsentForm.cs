@@ -18,7 +18,7 @@ internal sealed class ConsentForm : Form
         AutoSizeMode = AutoSizeMode.GrowAndShrink;
         Padding = new Padding(16);
         Font = new Font("Segoe UI", 9.5f);
-        Icon = SystemIcons.Shield;
+        Icon = AppIcon.Window;
 
         var layout = new TableLayoutPanel
         {

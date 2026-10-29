@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 48 48" width="256" height="256">
+  <title>papertrail</title>
+  <defs>
+    <linearGradient id="tile" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b82f6"/>
+      <stop offset="1" stop-color="#1d4ed8"/>
+    </linearGradient>
+    <linearGradient id="trail" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#bfd3fe" stop-opacity="0"/>
+      <stop offset="1" stop-color="#bfd3fe"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="44" height="44" rx="10" fill="url(#tile)"/>
+  <rect x="6" y="14" width="12" height="4" rx="2" fill="url(#trail)"/>
+  <rect x="5" y="22" width="13" height="4" rx="2" fill="#fbbf24"/>
+  <rect x="8" y="30" width="10" height="4" rx="2" fill="url(#trail)"/>
+  <path d="M21.5 8H34l6 6v24.5a1.5 1.5 0 0 1-1.5 1.5h-17a1.5 1.5 0 0 1-1.5-1.5v-29A1.5 1.5 0 0 1 21.5 8z" fill="#ffffff"/>
+  <path d="M34 8v4.5a1.5 1.5 0 0 0 1.5 1.5H40z" fill="#bfd3fe"/>
+  <rect x="24" y="15" width="7" height="2" rx="1" fill="#93b4fb"/>
+  <rect x="24" y="23" width="12" height="2" rx="1" fill="#f59e0b"/>
+  <rect x="24" y="31" width="9" height="2" rx="1" fill="#93b4fb"/>
+</svg>

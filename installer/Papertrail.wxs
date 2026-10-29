@@ -28,6 +28,9 @@
     <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of papertrail is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
+    <!-- Icon for the Settings > Apps entry and the Start menu shortcut; Papertrail.exe embeds the same file. -->
+    <Icon Id="papertrail.ico" SourceFile="$(sys.SOURCEFILEDIR)..\branding\papertrail.ico" />
+    <Property Id="ARPPRODUCTICON" Value="papertrail.ico" />
     <Property Id="ARPNOMODIFY" Value="1" />
     <Property Id="AUTOSTART" Value="1" />
     <Property Id="LAUNCHAPP" Value="1" />
@@ -89,7 +92,7 @@
 
     <StandardDirectory Id="ProgramMenuFolder">
       <Component Id="StartMenuShortcut">
-        <Shortcut Id="PapertrailShortcut" Name="papertrail" Description="Scan documents from web pages" Target="[INSTALLFOLDER]Papertrail.exe" WorkingDirectory="INSTALLFOLDER" />
+        <Shortcut Id="PapertrailShortcut" Name="papertrail" Description="Scan documents from web pages" Target="[INSTALLFOLDER]Papertrail.exe" WorkingDirectory="INSTALLFOLDER" Icon="papertrail.ico" />
         <RegistryValue Root="HKCU" Key="Software\Pursuant Solutions\papertrail" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
