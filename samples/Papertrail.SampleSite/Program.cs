@@ -3,14 +3,14 @@ using Microsoft.Extensions.FileProviders;
 // Serves samples/web plus clients/js/papertrail.js. Reads straight from the source tree when it
 // is available (edit-and-refresh), otherwise from the copies in the build output.
 
-var builder = WebApplication.CreateBuilder(new WebApplicationOptions { Args = args, WebRootPath = Path.Combine(AppContext.BaseDirectory, "wwwroot") });
+var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:47200");
 
 var app = builder.Build();
 
 string? repoRoot = FindRepoRoot(AppContext.BaseDirectory);
 IFileProvider files = repoRoot is null
-    ? app.Environment.WebRootFileProvider
+    ? new PhysicalFileProvider(Path.Combine(AppContext.BaseDirectory, "site"))
     : new CompositeFileProvider(
         new PhysicalFileProvider(Path.Combine(repoRoot, "samples", "web")),
         new PrefixedFileProvider("lib", new PhysicalFileProvider(Path.Combine(repoRoot, "clients", "js"))));
