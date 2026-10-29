@@ -62,7 +62,7 @@ Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes a
 | `src/Papertrail.DevHost` | Headless host with the mock scanner, for Linux, macOS, CI and demos |
 | `clients/js` | Browser client (`papertrail.js` plus `.d.ts`), with unit and end-to-end tests |
 | `samples/web`, `samples/Papertrail.SampleSite` | Demo page and its static host on `http://127.0.0.1:47200` |
-| `installer/` | WiX source for the MSI (`Papertrail.wxs`) |
+| `installer/` | WiX source for the MSI: `Papertrail.wxs` (package), `Dialogs.wxs` (installer screens), `License.rtf` (license text) |
 | `tests/` | xUnit tests for Core and the API |
 | `scripts/` | `test.sh` (everything except Windows-only checks), `build-msi.ps1` (Windows: build, sign, validate), `build-msi.sh` (Linux via Wine: unsigned dev build) |
 
@@ -112,24 +112,36 @@ On older Visual Studio versions, right-click the solution, choose **Configure St
 Requirements:
 
 - Windows 10 or 11 (workstations; terminal servers are not supported).
-- The **32-bit (x86)** [.NET Desktop Runtime 10](https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe) and [ASP.NET Core Runtime 10](https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe), both free from Microsoft ([all downloads](https://dotnet.microsoft.com/download/dotnet/10.0)). The x86 versions are needed even on 64-bit Windows. The MSI checks for both and stops with these links if one is missing.
+- The **32-bit (x86)** [.NET Desktop Runtime 10](https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe) and [ASP.NET Core Runtime 10](https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe). Both are free Microsoft installers (these links download them directly), and the x86 versions are needed even on 64-bit Windows. They install machine-wide, so Windows asks for administrator permission once; IT can push them ahead of papertrail.
 - A scanner with a **32-bit TWAIN** driver from the manufacturer. The driver installs `TWAINDSM.dll`; papertrail does not ship it. Without a scanner, you can install the TWAIN Working Group's *TWAIN2 FreeImage Software Scanner* sample source for testing.
 
-Install `papertrail-<version>-x86.msi` by double-clicking it, or silently:
+The MSI is per-user: no administrator rights and no UAC prompt for papertrail itself. Double-clicking `papertrail-<version>-x86.msi` shows:
+
+1. **Only if a runtime is missing:** an "Install Microsoft .NET first" screen that lists both runtimes as *Missing* or *Installed*, with a **Download** button for each missing one (it opens the exact x86 installer download above). After running Microsoft's installer, the user clicks **Check again**: the papertrail installer reopens, finds the runtime and carries on. Nothing has to be redone.
+2. **License agreement** (from `installer/License.rtf`) with an "I accept" box. Install stays disabled until it is ticked.
+3. A progress bar, then **papertrail is installed** with a Finish button. The app is already running in the notification area.
+
+Running the MSI again on a machine where it's installed offers **Repair** (puts back the files, URL handler and shortcut). To uninstall, use **Settings > Apps > Installed apps > papertrail > Uninstall**.
+
+Silent and scripted installs skip all screens, including the license:
 
 ```powershell
 msiexec /i papertrail-0.1.0-x86.msi /qn                 # AUTOSTART=0 / LAUNCHAPP=0 to opt out of those
-msiexec /x papertrail-0.1.0-x86.msi /qn                 # uninstall (or Settings > Apps)
+msiexec /x papertrail-0.1.0-x86.msi /qn                 # uninstall
 ```
 
-The MSI is per-user: no administrator rights, no UAC prompt, and a progress bar as the only UI. It:
+If a runtime is missing, a silent install fails (exit code 1603) without changing anything. A basic-UI install (`/qb`) shows a message naming both runtimes with their download links, and asks the user to run the installer again.
+
+The MSI:
 
 - installs `Papertrail.exe` (about 0.55 MB) to `%LOCALAPPDATA%\Programs\Papertrail`;
 - registers the URL handler: `HKCU\Software\Classes\papertrail\shell\open\command` = `"…\Papertrail.exe" "%1"`;
-- starts papertrail at sign-in: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Papertrail` = `"…\Papertrail.exe" --background` (also toggled from the tray menu);
+- starts papertrail at sign-in: `HKCU\Software\Microsoft\Windows\CurrentVersion\Run\Papertrail` = `"…\Papertrail.exe" --background` (also toggled from the tray menu; an upgrade turns it back on unless run with `AUTOSTART=0`);
 - adds a Start menu shortcut and starts the app.
 
-Upgrades install over the old version: the MSI asks the running app to exit (`Papertrail.exe --exit`), replaces it and starts the new one. Uninstalling removes the files and registry entries, but keeps the approved sites and logs in `%APPDATA%\Papertrail` and `%LOCALAPPDATA%\Papertrail`.
+Upgrades install over the old version, including rebuilds with the same version number: the MSI asks the running app to exit (`Papertrail.exe --exit`), replaces it and starts the new one. Uninstalling removes the files and registry entries, but keeps the approved sites and logs in `%APPDATA%\Papertrail` and `%LOCALAPPDATA%\Papertrail`.
+
+**License text.** The installer shows `installer/License.rtf`. It is currently a placeholder ("You agree to be cool."). To change it, replace that one file with your own RTF, for example saved from WordPad or Word, and rebuild the MSI.
 
 ### Build the MSI
 
@@ -188,7 +200,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 
 ## Known limitations (POC)
 
-- **Not yet tested on Windows with real scanners.** The code was built and tested on Linux. The MSI was installed, upgraded and uninstalled under Wine, where the tray app ran with the mock scanner. The TWAIN backend and tray UI have not been run on real Windows.
+- **Not yet tested on Windows with real scanners.** The code was built and tested on Linux. The MSI and its screens were installed, upgraded, repaired and uninstalled under Wine, where the tray app also ran. The TWAIN backend and tray UI have not been run on real Windows.
 - PNG output only (PDF is planned). Large color scans at 600 dpi produce big PNGs, and everything is held in memory.
 - 32-bit only, so only 32-bit TWAIN drivers are visible.
 - Canceling a scan stops at the next page boundary. Scans waiting in the driver's own dialog cannot be aborted from the web page.

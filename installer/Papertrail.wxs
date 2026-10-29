@@ -4,8 +4,9 @@
   .config/dotnet-tools.json) by scripts/build-msi.ps1. Do not move to WiX 6 or later without
   settling the OSMF.
 
-  Per-user package: no elevation prompt, installs to %LOCALAPPDATA%\Programs\Papertrail, basic
-  UI (progress bar only). It uses no WiX extensions, so the MSI contains no WiX binaries.
+  Per-user package: no elevation prompt, installs to %LOCALAPPDATA%\Programs\Papertrail. Screens
+  are in Dialogs.wxs, the license text in License.rtf. It uses no WiX extensions, so the MSI
+  contains no WiX binaries.
 
   Properties (msiexec /i papertrail.msi NAME=value):
     AUTOSTART=0          don't start papertrail at sign-in
@@ -23,7 +24,8 @@
       Compressed="yes">
 
     <SummaryInformation Description="papertrail - scan documents from web pages" />
-    <MajorUpgrade DowngradeErrorMessage="A newer version of papertrail is already installed." />
+    <!-- Same-version rebuilds replace each other instead of installing side by side. -->
+    <MajorUpgrade AllowSameVersionUpgrades="yes" DowngradeErrorMessage="A newer version of papertrail is already installed." />
     <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
 
     <Property Id="ARPNOMODIFY" Value="1" />
@@ -42,9 +44,11 @@
         <FileSearch Name="Microsoft.AspNetCore.dll" MinVersion="10.0.0.0" MaxVersion="10.65535.65535.65535" />
       </DirectorySearch>
     </Property>
+    <!-- With the full UI, PT_RuntimeDlg handles a missing runtime (with download buttons) and never
+         lets the install continue. This message is for basic UI and silent installs. -->
     <Launch
-        Condition="Installed OR SKIPRUNTIMECHECK OR (DESKTOPRUNTIME AND ASPNETRUNTIME)"
-        Message="papertrail needs two free Microsoft components, in their 32-bit (x86) versions: the .NET Desktop Runtime 10 and the ASP.NET Core Runtime 10.&#13;&#10;&#13;&#10;Download and install both, then run this installer again:&#13;&#10;https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe&#13;&#10;https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe&#13;&#10;&#13;&#10;Both are also listed at https://dotnet.microsoft.com/download/dotnet/10.0" />
+        Condition="Installed OR SKIPRUNTIMECHECK OR (DESKTOPRUNTIME AND ASPNETRUNTIME) OR UILevel = 5"
+        Message="papertrail can't be installed yet. First install these two free Microsoft components, in their 32-bit (x86) versions (also on 64-bit Windows):&#13;&#10;&#13;&#10;1. .NET Desktop Runtime 10 (x86):&#13;&#10;https://aka.ms/dotnet/10.0/windowsdesktop-runtime-win-x86.exe&#13;&#10;&#13;&#10;2. ASP.NET Core Runtime 10 (x86):&#13;&#10;https://aka.ms/dotnet/10.0/aspnetcore-runtime-win-x86.exe&#13;&#10;&#13;&#10;Then run this papertrail installer again." />
 
     <StandardDirectory Id="LocalAppDataFolder">
       <Directory Id="ProgramsDir" Name="Programs">
@@ -84,6 +88,8 @@
         <RegistryValue Root="HKCU" Key="Software\Pursuant Solutions\papertrail" Name="StartMenuShortcut" Type="integer" Value="1" KeyPath="yes" />
       </Component>
     </StandardDirectory>
+
+    <UIRef Id="PapertrailUI" />
 
     <Feature Id="Main" Title="papertrail">
       <ComponentGroupRef Id="AppComponents" />

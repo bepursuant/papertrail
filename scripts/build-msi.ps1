@@ -5,7 +5,7 @@
 .DESCRIPTION
   1. dotnet publish src/Papertrail.App (framework-dependent, single file, win-x86)
   2. signtool sign Papertrail.exe        (when a certificate is given)
-  3. wix build installer/Papertrail.wxs  (WiX 5.0.2 local tool, see .config/dotnet-tools.json)
+  3. wix build installer/*.wxs           (WiX 5.0.2 local tool, see .config/dotnet-tools.json)
   4. wix msi validate                    (ICE checks)
   5. signtool sign the MSI               (when a certificate is given)
 
@@ -94,7 +94,7 @@ try {
     Invoke-Checked dotnet @('tool', 'restore')
     New-Item -ItemType Directory -Force -Path $msiDir | Out-Null
     $msi = Join-Path $msiDir "papertrail-$Version-x86.msi"
-    Invoke-Checked dotnet @('wix', 'build', 'installer/Papertrail.wxs', '-arch', 'x86',
+    Invoke-Checked dotnet @('wix', 'build', 'installer/Papertrail.wxs', 'installer/Dialogs.wxs', '-arch', 'x86',
         '-d', "ProductVersion=$Version", '-d', "PublishDir=$publishDir", '-o', $msi)
     if (-not $SkipValidation) {
         Invoke-Checked dotnet @('wix', 'msi', 'validate', $msi)

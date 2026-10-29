@@ -35,7 +35,8 @@ wix_version="$(python3 -c 'import json;print(json.load(open(".config/dotnet-tool
 wix_dll="${NUGET_PACKAGES:-$HOME/.nuget/packages}/wix/$wix_version/tools/net6.0/any/wix.dll"
 
 mkdir -p "$(dirname "$msi")"
-wine "$win_dotnet/dotnet.exe" "$(winepath -w "$wix_dll")" build "$(winepath -w installer/Papertrail.wxs)" \
+wine "$win_dotnet/dotnet.exe" "$(winepath -w "$wix_dll")" build \
+  "$(winepath -w installer/Papertrail.wxs)" "$(winepath -w installer/Dialogs.wxs)" \
   -arch x86 -d ProductVersion="$version" -d PublishDir="$(winepath -w "$publish_dir")" \
   -o "$(winepath -w "$msi")"
 
