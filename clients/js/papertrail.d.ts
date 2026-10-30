@@ -78,7 +78,11 @@ export interface Barcode {
   rotation: 0 | 90 | 180 | 270;
   /** Reading direction on the page, degrees clockwise (0 upright, 180 upside down); absent when unknown. */
   orientation?: number;
-  /** Page pixel coordinates: the scan line's ends for 1D codes, corners/finder patterns for 2D codes. */
+  /**
+   * Pixels of the page as the scanner delivered it: the scan line's ends for 1D codes, corners or
+   * finder patterns for 2D codes. A provenance band on top is not included; use
+   * {@link barcodePointsOnImage} to draw them on the stamped image.
+   */
   points: Array<{ x: number; y: number }>;
 }
 
@@ -169,3 +173,12 @@ export declare class PapertrailClient {
 }
 
 export declare function buildScanUrl(origin: string, requestId: string, options?: ScanOptions): string;
+
+/**
+ * Maps barcode points onto the image the page downloaded. Detection runs before the stamp, so a
+ * band at the top shifts every point down by `provenance.bandHeight`. A bottom band does not.
+ */
+export declare function barcodePointsOnImage(
+  provenance: PageProvenance | null | undefined,
+  points: Array<{ x: number; y: number }>,
+): Array<{ x: number; y: number }>;

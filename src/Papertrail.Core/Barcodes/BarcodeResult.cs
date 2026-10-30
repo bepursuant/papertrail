@@ -12,7 +12,11 @@ public readonly record struct BarcodePoint(float X, float Y);
 /// (0 upright, 90 turned right, 180 upside down), measured from its corner points; null when the
 /// format's points don't show it.
 /// </param>
-/// <param name="Points">Corner or end points ZXing reports for the format (2 for 1D codes, 3-4 for 2D).</param>
+/// <param name="Points">
+/// Corner or end points ZXing reports for the format (2 for 1D codes, 3-4 for 2D), in pixels of the
+/// page as the scanner delivered it. A provenance band added on top shifts that image down; these
+/// points are not moved.
+/// </param>
 public sealed record BarcodeResult(
     int Page,
     BarcodeFormat Format,

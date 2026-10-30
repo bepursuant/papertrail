@@ -300,6 +300,17 @@ export function buildScanUrl(origin, requestId, options = {}) {
   return `papertrail://scan?${params}`;
 }
 
+/**
+ * Maps barcode points onto the image the page downloaded. Detection runs before the stamp, so a
+ * band at the top shifts every point down by the band's height. A bottom band leaves the scan
+ * where it was.
+ */
+export function barcodePointsOnImage(provenance, points) {
+  const shift = provenance?.position === 'top' ? Number(provenance.bandHeight) || 0 : 0;
+  if (!shift) return points;
+  return points.map((point) => ({ ...point, y: point.y + shift }));
+}
+
 function randomId() {
   const bytes = new Uint8Array(16);
   globalThis.crypto.getRandomValues(bytes);

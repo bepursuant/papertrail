@@ -1,4 +1,4 @@
-import { PapertrailClient, PapertrailError } from './lib/papertrail.js';
+import { PapertrailClient, PapertrailError, barcodePointsOnImage } from './lib/papertrail.js';
 
 const params = new URLSearchParams(location.search);
 const client = new PapertrailClient({ port: Number(params.get('port')) || undefined });
@@ -112,7 +112,8 @@ function barcodeOverlay(page) {
   svg.setAttribute('preserveAspectRatio', 'xMidYMid meet');
   const stroke = Math.max(4, page.width / 150);
   for (const code of page.barcodes ?? []) {
-    let points = code.points;
+    // Points are on the unstamped scan. A top band pushes that image down.
+    let points = barcodePointsOnImage(page.provenance, code.points);
     if (points.length === 2) {
       const line = document.createElementNS(SVG, 'line');
       [['x1', points[0].x], ['y1', points[0].y], ['x2', points[1].x], ['y2', points[1].y]].forEach(([k, v]) => line.setAttribute(k, v));
