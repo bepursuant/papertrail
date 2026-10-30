@@ -76,7 +76,7 @@ public sealed class MockScannerBackend : IScannerBackend
         {
             await Task.Delay(_options.PageDelay, cancellationToken).ConfigureAwait(false);
             var page = scannerId == BarcodesId
-                ? Encode(i, Barcodes.MockBarcodeSheet.Render(i, pageCount, Math.Min(options.Dpi, MaxBarcodeSheetDpi)), options)
+                ? Encode(i, Barcodes.MockBarcodeSheet.Render(i, pageCount, Math.Min(options.Dpi, MaxBarcodeSheetDpi)), options, Math.Min(options.Dpi, MaxBarcodeSheetDpi))
                 : RenderPage(i, pageCount, options, useFeeder, duplex);
             pages.Add(page);
             onPage?.Invoke(page);
@@ -124,18 +124,22 @@ public sealed class MockScannerBackend : IScannerBackend
         };
         string footer = $"{options.Dpi} DPI  {mode}  {(feeder ? "FEEDER" : "FLATBED")}";
         canvas.DrawText(footer, margin, height - (margin * 2), unit * 2, ink);
-        return Encode(index, canvas, options);
+        return Encode(index, canvas, options, dpi);
     }
 
-    private static ScannedPage Encode(int index, Canvas canvas, ScanOptions options)
+    private static ScannedPage Encode(int index, Canvas canvas, ScanOptions options, int dpi)
     {
         bool grayscale = options.ColorMode != ColorMode.Color;
         bool threshold = options.ColorMode == ColorMode.BlackWhite;
         byte[] data = options.Format switch
         {
-            OutputFormat.Png => canvas.ToPng(grayscale, threshold),
+            OutputFormat.Png => canvas.ToPng(grayscale, threshold, dpi),
             _ => throw new ScannerException("unsupported_format", $"The mock scanner cannot produce {options.Format}."),
         };
-        return new ScannedPage(index, OutputFormats.MediaType(options.Format), canvas.Width, canvas.Height, data);
+        string scannerId = options.ScannerId ?? FeederId;
+        return new ScannedPage(index, OutputFormats.MediaType(options.Format), canvas.Width, canvas.Height, data)
+        {
+            ScannerName = Scanners.First(s => s.Id == scannerId).Name,
+        };
     }
 }

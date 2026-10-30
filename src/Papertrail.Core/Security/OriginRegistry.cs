@@ -11,6 +11,12 @@ public sealed class OriginRegistry
     /// <summary>An unanswered pairing prompt counts as "no" after this long.</summary>
     public static readonly TimeSpan PairingPromptTimeout = TimeSpan.FromMinutes(2);
 
+    /// <summary>
+    /// The approval wording shown now. Version 2 added: stamped scans send the Windows user name
+    /// and computer name to the site.
+    /// </summary>
+    public const int CurrentApprovalVersion = 2;
+
     private readonly SettingsStore _settings;
     private readonly PapertrailPolicy _policy;
     private readonly TimeProvider _time;
@@ -44,6 +50,14 @@ public sealed class OriginRegistry
 
     public bool IsPolicyOrigin(string origin) => _policyOrigins.Contains(origin);
 
+    /// <summary>
+    /// True when the site may receive the user's identity in provenance stamps: the admin listed it
+    /// in policy, or the user approved it with the current wording.
+    /// </summary>
+    public bool ApprovalCoversIdentity(string origin) =>
+        _policyOrigins.Contains(origin) ||
+        _settings.Snapshot().PairedOrigins.Any(p => p.Origin == origin && p.ApprovalVersion >= CurrentApprovalVersion);
+
     public IReadOnlyList<PairedOrigin> ListUserPairings() => _settings.Snapshot().PairedOrigins;
 
     public IReadOnlyCollection<string> PolicyOrigins => _policyOrigins;
@@ -53,9 +67,13 @@ public sealed class OriginRegistry
         _deniedUntil.TryRemove(origin, out _);
         _settings.Update(s =>
         {
-            if (!s.PairedOrigins.Any(p => p.Origin == origin))
+            if (s.PairedOrigins.FirstOrDefault(p => p.Origin == origin) is { } existing)
             {
-                s.PairedOrigins.Add(new PairedOrigin { Origin = origin, PairedAt = _time.GetUtcNow() });
+                existing.ApprovalVersion = CurrentApprovalVersion;
+            }
+            else
+            {
+                s.PairedOrigins.Add(new PairedOrigin { Origin = origin, PairedAt = _time.GetUtcNow(), ApprovalVersion = CurrentApprovalVersion });
             }
         });
     }

@@ -42,16 +42,38 @@ Status: **proof of concept** for Windows 10/11 workstations (32-bit build, PNG o
 | `GET /v1/status` | `{app, version, apiVersion, backend, paired, pairingAllowed}` |
 | `POST /v1/pair` | Ask the user to approve this site |
 | `GET /v1/scanners` | List scanners (paired sites only) |
-| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, showDriverUi, maxPages, format: png, barcodes?, barcodeFormats?}`. Returns `202` with the job |
+| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, showDriverUi, maxPages, format: png, stamp?: {position: top\|bottom}, barcodes?, barcodeFormats?}`. Returns `202` with the job |
 | `GET /v1/scans/{id}` | Job status: `queued`, `scanning`, `completed`, `failed` or `canceled`, plus pages. With `barcodes: true`, also the barcodes found |
 | `GET /v1/scans/{id}/pages/{n}` | Page image (`image/png`) |
 | `DELETE /v1/scans/{id}` | Discard or cancel a job |
 
 `format` is optional and only `png` is accepted for now; the option exists so PDF can be added later without changing the API shape.
 
-`barcodes: true` finds barcodes on each page (QR, Data Matrix, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E and ITF, unless `barcodeFormats` names a subset, for example `["qrCode", "code128"]`). It is off unless asked. Detection runs in the background, on the page as the scanner delivered it, and the job stays `scanning` until it finishes. Each barcode is `{page, format, text, rotation, orientation, points}`: `rotation` is which way the page was turned to read it (0, 90, 180 or 270 degrees clockwise), `orientation` is the code's own angle on the page when it can be measured, and `points` are page-pixel coordinates. Pages also carry `barcodeStatus`: `done`, `partial` (the time budget ran out), `failed` or `skipped`. The same list is repeated once per page and once for the whole job. A `papertrail://scan` link takes the same options as `barcodes=true&barcodeFormats=qrCode,code128`.
+`barcodes: true` finds barcodes on each page (QR, Data Matrix, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E and ITF, unless `barcodeFormats` names a subset, for example `["qrCode", "code128"]`). It is off unless asked. Detection runs in the background, on a copy of the page as the scanner delivered it, and the job stays `scanning` until it finishes. Each barcode is `{page, format, text, rotation, orientation, points}`: `rotation` is which way the page was turned to read it (0, 90, 180 or 270 degrees clockwise), `orientation` is the code's own angle on the page when it can be measured, and `points` are page-pixel coordinates. Pages also carry `barcodeStatus`: `done`, `partial` (the time budget ran out), `failed` or `skipped`. The same list is repeated once per page and once for the whole job. A `papertrail://scan` link takes the same options as `barcodes=true&barcodeFormats=qrCode,code128`. A stamp, when one is requested, is applied after that copy is taken, so detection sees the unstamped page.
 
-Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `paper_jam`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
+### Provenance stamp
+
+With `stamp: { position: 'top' | 'bottom' }` (or `stamp=top|bottom` in a `papertrail://scan` link), papertrail makes each page taller by a white band with black text. The band is never drawn over the scan. Names are left-aligned and padded so the colons share a column:
+
+```
+PAPERTRAIL ID : PT-7K3M-9QX2                     PAGE 1 OF 3
+TIMESTAMP     : 2026-10-29 16:36:05 UTC-04:00
+WORKSTATION   : PC-0042  USER : CONTOSO\JOSE
+SCANNER       : CANON DR-C225
+SHA-256 HASH  : 4f1c0a9e2b7d88a14e90c3b6f25d17a8...
+```
+
+The scan id is on the left of the first line and "PAGE N OF M" is flush right. The time is local, with its UTC offset. The bitmap font is upper case, so the printed user name drops accents. The band shows the first 32 digits of the SHA-256; the full hash, the origin, and the UTC instant stay in the embedded record and in `page.provenance`.
+
+papertrail fills in every value. The page can only choose the position, and any other member of `stamp` is rejected as `invalid_options`.
+
+The same record is embedded in the PNG: an `iTXt` chunk named `papertrail:provenance` (JSON), plus `Software`, `Creation Time`, `Source` and `Description`. It is also returned to the page as `page.provenance`. `originalSha256` is computed over the page's pixels before the band was added (method `papertrail-pixels-v1`), so it can be rechecked from the stamped PNG alone with `ProvenanceVerifier` in `Papertrail.Core`.
+
+A stamped job publishes its pages only once all of them are stamped; until then, `pagesScanned` shows progress. The band uses a built-in bitmap font, so it shows only upper-case ASCII; the metadata keeps the exact values.
+
+Stamped scans send the user's Windows name and computer name to the site, so the pairing prompt says so. Sites approved before that wording are asked again the first time they request a stamp (`approval_required`), and the JS client handles this automatically. Sites listed in policy, and stamps required by policy, are covered by the admin.
+
+Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `approval_required` and `stamp_disabled` (provenance stamp), `stamp_failed`, `paper_jam`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
 
 ## Repository layout
 
@@ -201,11 +223,12 @@ To rerun the TWAIN tests without a scanner on Linux, `scripts/test-twain-wine.sh
 {
   "allowedOrigins": ["https://app.example.com"],
   "allowPairing": false,
-  "allowInsecureLoopbackOrigins": false
+  "allowInsecureLoopbackOrigins": false,
+  "provenanceStamp": { "mode": "required", "position": "bottom" }
 }
 ```
 
-`allowedOrigins` are approved without a prompt. `allowPairing: false` stops users from approving other sites. The policy is read from this file only (no Group Policy templates); push it with your usual deployment tool. The port is always 47115.
+`allowedOrigins` are approved without a prompt. `allowPairing: false` stops users from approving other sites. `provenanceStamp.mode` is `optional` (the default: the page decides), `required` (every scan is stamped) or `disabled` (stamp requests fail with `stamp_disabled`); `position`, when set, overrides the page's choice. The policy is read from this file only (no Group Policy templates); push it with your usual deployment tool. The port is always 47115.
 
 To skip browser prompts on managed machines, use the browsers' own policies: the Local Network Access allowlist policies in Chrome and Edge, `LocalNetworkAccess.SkipDomains` in Firefox, and `AutoLaunchProtocolsFromOrigins` for the `papertrail://` prompt.
 
@@ -215,7 +238,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 
 - `await client.connect()` makes sure the app is running (launching it via `papertrail://launch` if needed) and that the site is paired.
 - `await client.listScanners()` lists scanners.
-- `await client.scan(options, { onProgress, signal })` returns `{ id, pages: [{ index, width, height, mediaType, blob }] }`. With `barcodes: true` the result also has `barcodes`, and each page has `barcodeStatus` and `barcodes`. If the app isn't running, it starts it via a `papertrail://` link.
+- `await client.scan(options, { onProgress, signal })` returns `{ id, pages: [{ index, width, height, mediaType, blob, provenance? }], stamp? }`. Pass `stamp: { position: 'bottom' }` for the provenance stamp. With `barcodes: true` the result also has `barcodes`, and each page has `barcodeStatus` and `barcodes`. If the app isn't running, it starts it via a `papertrail://` link.
 - Errors are `PapertrailError` objects with a `code`, such as `not_running`, `loopback_blocked`, `pairing_denied` or `paper_jam`.
 - Call these from a click handler, and serve your site over HTTPS. Browsers deny loopback access to insecure public pages.
 - If your page runs in an iframe, the embedding page must delegate `allow="loopback-network"`.
@@ -227,6 +250,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 - 32-bit only, so only 32-bit TWAIN drivers are visible.
 - Canceling a scan stops at the next page boundary. Scans waiting in the driver's own dialog cannot be aborted from the web page.
 - One instance per Windows session on the fixed port 47115; terminal servers are not supported.
+- Provenance stamps are not signed or trusted-timestamped yet: the hash shows that the page content matches the record, but anyone could rewrite both. The band shows upper-case ASCII only. A `papertrail://` stamped scan from a site that still needs re-approval is rejected in the app (logged), so the page times out; the HTTP path asks for re-approval instead.
 - Barcode detection (ZXing.Net) reads 2D codes at any angle and 1D codes turned by 0/90/180/270, plus a modest skew (about 10° for a 1D code, about 15° for Data Matrix). It has not been tried on a real scanner. Aztec is found, but its angle is not reported. A page of codes adds about a second after the scan, on a background thread.
 
 ## License

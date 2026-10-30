@@ -6,9 +6,10 @@ const ORIGIN = 'https://app.example.com';
 
 /** In-memory stand-in for the papertrail API. */
 class FakeApp {
-  constructor({ running = true, paired = false } = {}) {
+  constructor({ running = true, paired = false, reapprove = false } = {}) {
     this.running = running;
     this.paired = paired;
+    this.reapprove = reapprove;
     this.jobs = new Map();
     this.calls = [];
     this.deleted = [];
@@ -24,9 +25,12 @@ class FakeApp {
 
     const json = (status, body) => new Response(body === null ? null : JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json' } });
     if (method === 'GET' && pathname === '/v1/status') return json(200, { app: 'papertrail', version: '0.1.0', apiVersion: 1, backend: 'mock', paired: this.paired, pairingAllowed: true });
-    if (method === 'POST' && pathname === '/v1/pair') { this.paired = true; return json(200, { paired: true }); }
+    if (method === 'POST' && pathname === '/v1/pair') { this.paired = true; this.reapprove = false; return json(200, { paired: true }); }
     if (!this.paired) return json(403, { error: 'origin_not_paired', message: 'Pair first.' });
     if (method === 'GET' && pathname === '/v1/scanners') return json(200, { scanners: [{ id: 'mock-feeder', name: 'Mock', backend: 'mock', isDefault: true }] });
+    if (method === 'POST' && pathname === '/v1/scans' && this.reapprove && JSON.parse(init.body ?? '{}').stamp) {
+      return json(403, { error: 'approval_required', message: 'Approve this site again.' });
+    }
     if (method === 'POST' && pathname === '/v1/scans') return json(202, this.addJob('job123456789abcdef', JSON.parse(init.body ?? '{}')));
 
     const match = pathname.match(/^\/v1\/scans\/([^/]+)(?:\/pages\/(\d+))?$/);
@@ -54,7 +58,18 @@ class FakeApp {
       format: 'png',
       createdAt: new Date().toISOString(),
       error: job.status === 'failed' ? { error: 'paper_jam', message: 'The scanner reported a paper jam.' } : undefined,
-      pages: done ? [{ index: 0, mediaType: 'image/png', width: 10, height: 14, size: 4, url: `/v1/scans/${job.id}/pages/0`, ...(job.options.barcodes ? { barcodeStatus: 'done', barcodes: found } : {}) }] : [],
+      pages: done ? [{
+        index: 0,
+        mediaType: 'image/png',
+        width: 10,
+        height: 14,
+        size: 4,
+        url: `/v1/scans/${job.id}/pages/0`,
+        ...(job.options.stamp ? { provenance: { scanId: 'PT-AAAA-BBBB', page: 1, pageCount: 1 } } : {}),
+        ...(job.options.barcodes ? { barcodeStatus: 'done', barcodes: found } : {}),
+      }] : [],
+      pagesScanned: done ? 1 : 0,
+      ...(job.options.stamp ? { stamp: { position: job.options.stamp.position ?? 'bottom', requiredByPolicy: false, scanId: 'PT-AAAA-BBBB' } } : {}),
       ...(job.options.barcodes && done ? { barcodes: found } : {}),
     };
   }
@@ -186,4 +201,20 @@ test('retries without targetAddressSpace when the browser rejects the value', as
 
 test('status() returns null when unreachable', async () => {
   assert.equal(await client(new FakeApp({ running: false })).status(), null);
+});
+
+test('buildScanUrl carries only the stamp position', () => {
+  assert.equal(new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { stamp: { position: 'top' } })).searchParams.get('stamp'), 'top');
+  assert.equal(new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { stamp: {} })).searchParams.get('stamp'), 'bottom');
+  assert.equal(new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { stamp: null })).searchParams.has('stamp'), false);
+});
+
+test('stamped scan returns provenance and re-approves an old approval once', async () => {
+  const app = new FakeApp({ paired: true, reapprove: true });
+
+  const result = await client(app).scan({ stamp: { position: 'top' } });
+
+  assert.deepEqual(app.calls.filter((c) => c.startsWith('POST')), ['POST /v1/scans', 'POST /v1/pair', 'POST /v1/scans']);
+  assert.deepEqual(result.stamp, { position: 'top', requiredByPolicy: false, scanId: 'PT-AAAA-BBBB' });
+  assert.equal(result.pages[0].provenance.scanId, 'PT-AAAA-BBBB');
 });

@@ -15,6 +15,11 @@ before adding a package to `Directory.Packages.props` or a tool to `.config/dotn
 | NTwain | 3.7.6 | MIT | https://github.com/soukoku/ntwain |
 | ZXing.Net | 0.16.11 | Apache-2.0 | https://github.com/micjahn/ZXing.Net |
 
+The provenance stamp (PNG decoding and encoding, the band font, SHA-256) adds no third-party
+component: it is papertrail's own code on top of the .NET runtime's zlib and cryptography.
+SixLabors ImageSharp and SixLabors Fonts must not be used (their license charges larger
+commercial users).
+
 `Papertrail.exe` is a framework-dependent build: the .NET runtimes are not inside the MSI. Users
 install Microsoft's own x86 .NET Desktop Runtime and ASP.NET Core Runtime (MIT), which the MSI
 checks for.

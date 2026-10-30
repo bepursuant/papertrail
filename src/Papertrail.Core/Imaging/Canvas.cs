@@ -100,13 +100,22 @@ internal sealed class Canvas
         return cursor - x;
     }
 
+    /// <summary>Copies the red channel, one byte per pixel (the gray value for black-and-white drawings).</summary>
+    public void CopyRedChannel(Span<byte> destination)
+    {
+        for (int i = 0; i < Width * Height; i++)
+        {
+            destination[i] = _rgb[i * 3];
+        }
+    }
+
     public static int MeasureText(string text, int scale) => text.Length * (BitmapFont.GlyphWidth + 1) * scale;
 
-    public byte[] ToPng(bool grayscale, bool threshold)
+    public byte[] ToPng(bool grayscale, bool threshold, int dpi = 0)
     {
         if (!grayscale)
         {
-            return PngEncoder.Encode(Width, Height, PngPixelFormat.Rgb24, _rgb);
+            return PngEncoder.Encode(Width, Height, PngPixelFormat.Rgb24, _rgb, dpi);
         }
 
         var gray = new byte[Width * Height];
@@ -116,10 +125,11 @@ internal sealed class Canvas
             gray[i] = threshold ? (byte)(luma < 160 ? 0 : 255) : (byte)luma;
         }
 
-        return PngEncoder.Encode(Width, Height, PngPixelFormat.Gray8, gray);
+        return PngEncoder.Encode(Width, Height, PngPixelFormat.Gray8, gray, dpi);
     }
 }
 
+/// <summary>Upper-case 5x7 font covering printable ASCII (lower case is drawn as upper case).</summary>
 internal static class BitmapFont
 {
     public const int GlyphWidth = 5;
@@ -128,6 +138,8 @@ internal static class BitmapFont
     private static readonly Dictionary<char, bool[]> Glyphs = Build();
 
     public static bool[] Get(char c) => Glyphs.TryGetValue(c, out var g) ? g : Glyphs['?'];
+
+    public static bool Has(char c) => Glyphs.ContainsKey(c);
 
     private static Dictionary<char, bool[]> Build()
     {
@@ -175,6 +187,33 @@ internal static class BitmapFont
             ['.'] = ".....|.....|.....|.....|.....|.##..|.##..",
             ['?'] = ".###.|#...#|....#|...#.|..#..|.....|..#..",
             [' '] = ".....|.....|.....|.....|.....|.....|.....",
+            ['\\'] = "#....|.#...|.#...|..#..|...#.|...#.|....#",
+            ['@'] = ".###.|#...#|#.###|#.#.#|#.###|#....|.###.",
+            ['_'] = ".....|.....|.....|.....|.....|.....|#####",
+            ['+'] = ".....|..#..|..#..|#####|..#..|..#..|.....",
+            ['('] = "...#.|..#..|.#...|.#...|.#...|..#..|...#.",
+            [')'] = ".#...|..#..|...#.|...#.|...#.|..#..|.#...",
+            [','] = ".....|.....|.....|.....|.##..|..#..|.#...",
+            ['\''] = "..#..|..#..|.#...|.....|.....|.....|.....",
+            ['"'] = ".#.#.|.#.#.|.#.#.|.....|.....|.....|.....",
+            ['&'] = ".##..|#..#.|#.#..|.#...|#.#.#|#..#.|.##.#",
+            ['#'] = ".#.#.|.#.#.|#####|.#.#.|#####|.#.#.|.#.#.",
+            ['='] = ".....|.....|#####|.....|#####|.....|.....",
+            ['!'] = "..#..|..#..|..#..|..#..|..#..|.....|..#..",
+            ['$'] = "..#..|.####|#.#..|.###.|..#.#|####.|..#..",
+            ['%'] = "##...|##..#|...#.|..#..|.#...|#..##|...##",
+            ['*'] = ".....|..#..|#.#.#|.###.|#.#.#|..#..|.....",
+            [';'] = ".....|.##..|.##..|.....|.##..|..#..|.#...",
+            ['['] = ".###.|.#...|.#...|.#...|.#...|.#...|.###.",
+            [']'] = ".###.|...#.|...#.|...#.|...#.|...#.|.###.",
+            ['<'] = "...#.|..#..|.#...|#....|.#...|..#..|...#.",
+            ['>'] = ".#...|..#..|...#.|....#|...#.|..#..|.#...",
+            ['{'] = "...##|..#..|..#..|.#...|..#..|..#..|...##",
+            ['}'] = "##...|..#..|..#..|...#.|..#..|..#..|##...",
+            ['|'] = "..#..|..#..|..#..|..#..|..#..|..#..|..#..",
+            ['~'] = ".....|.....|.#...|#.#.#|...#.|.....|.....",
+            ['^'] = "..#..|.#.#.|#...#|.....|.....|.....|.....",
+            ['`'] = ".#...|..#..|...#.|.....|.....|.....|.....",
         };
 
         var glyphs = new Dictionary<char, bool[]>();

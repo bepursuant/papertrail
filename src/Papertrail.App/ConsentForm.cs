@@ -77,6 +77,7 @@ internal sealed class ConsentForm : Form
         "Allow this website to use your scanners?",
         request.Origin,
         "The site will be able to list your scanners and scan documents whenever it asks, without asking you again. "
+            + "Scans it asks to stamp will include your Windows user name and computer name. "
             + "Only allow sites you trust. You can remove the site later from \"Approved websites\" in the papertrail tray menu.",
         "Allow",
         "Don't allow");

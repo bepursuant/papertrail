@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Papertrail.Barcodes;
+using Papertrail.Provenance;
 using Papertrail.Scanning;
 
 namespace Papertrail.Jobs;
@@ -31,6 +32,7 @@ public sealed class ScanJob
 {
     private readonly object _gate = new();
     private readonly List<ScannedPage> _pages = [];
+    private int _heldPages;
     private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
     private readonly TaskCompletionSource _claimed = new(TaskCreationOptions.RunContinuationsAsynchronously);
 
@@ -85,6 +87,29 @@ public sealed class ScanJob
 
     internal CancellationTokenSource Cancellation { get; } = new();
 
+    /// <summary>The effective stamp (after policy); same as <c>Options.Stamp</c>.</summary>
+    public StampOptions? Stamp => Options.Stamp;
+
+    public bool StampRequiredByPolicy { get; internal init; }
+
+    /// <summary>Short id printed on stamped pages; made by papertrail, unlike <see cref="Id"/>.</summary>
+    public string? ScanId { get; internal init; }
+
+    /// <summary>
+    /// Pages received from the scanner so far. Stamped jobs hold their pages until the scan ends
+    /// (the band says "page N of M"), so this can be ahead of <see cref="Pages"/>.
+    /// </summary>
+    public int PagesScanned
+    {
+        get
+        {
+            lock (_gate)
+            {
+                return _pages.Count + _heldPages;
+            }
+        }
+    }
+
     public IReadOnlyList<ScannedPage> Pages
     {
         get
@@ -103,6 +128,23 @@ public sealed class ScanJob
         lock (_gate)
         {
             _pages.Add(page);
+        }
+    }
+
+    internal void HoldPage()
+    {
+        lock (_gate)
+        {
+            _heldPages++;
+        }
+    }
+
+    internal void ReleaseHeldPages(IEnumerable<ScannedPage> pages)
+    {
+        lock (_gate)
+        {
+            _pages.AddRange(pages);
+            _heldPages = 0;
         }
     }
 

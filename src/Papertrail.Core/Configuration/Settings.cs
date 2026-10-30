@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Papertrail.Provenance;
 
 namespace Papertrail.Configuration;
 
@@ -12,6 +13,12 @@ public sealed class PairedOrigin
     public required string Origin { get; set; }
 
     public DateTimeOffset PairedAt { get; set; }
+
+    /// <summary>
+    /// Which approval wording the user accepted. 2 and later tell the user that stamped scans send
+    /// their Windows user name and computer name to the site; missing means an older approval.
+    /// </summary>
+    public int? ApprovalVersion { get; set; }
 }
 
 /// <summary>
@@ -28,6 +35,9 @@ public sealed class PapertrailPolicy
 
     /// <summary>Accept http://localhost and http://127.0.0.1 pages (development). Default true.</summary>
     public bool? AllowInsecureLoopbackOrigins { get; set; }
+
+    /// <summary>Provenance stamp rules; for example <c>{"mode": "required"}</c> stamps every scan.</summary>
+    public ProvenanceStampPolicy? ProvenanceStamp { get; set; }
 
     public static PapertrailPolicy Load(string? path)
     {

@@ -269,6 +269,86 @@ public sealed class ApiTests : IAsyncLifetime
         Assert.Equal("paper_jam", job.Error!.Error);
     }
 
+    [Fact]
+    public async Task Stamped_scan_returns_provenance_and_embeds_it_in_each_page()
+    {
+        _runtime.Origins.Pair(Site);
+        var create = Request(HttpMethod.Post, "/v1/scans", Site);
+        create.Content = JsonContent.Create(new { source = "feeder", stamp = new { position = "top" } });
+        var created = await Json<ScanJobResponse>(await _http.SendAsync(create));
+        Assert.Equal(Provenance.StampPosition.Top, created.Stamp!.Position);
+        Assert.False(created.Stamp.RequiredByPolicy);
+
+        var job = await PollUntilFinished(created.Id, Site);
+
+        Assert.Equal(Jobs.ScanJobStatus.Completed, job.Status);
+        Assert.Equal(2, job.PagesScanned);
+        foreach (var info in job.Pages)
+        {
+            var provenance = info.Provenance!;
+            Assert.Equal((Site, created.Stamp.ScanId, job.Pages.Count), (provenance.Origin, provenance.ScanId, provenance.PageCount));
+            Assert.Equal(Environment.MachineName, provenance.Workstation);
+            Assert.EndsWith("\\" + Environment.UserName, provenance.User);
+
+            byte[] png = await (await _http.SendAsync(Request(HttpMethod.Get, info.Url, Site))).Content.ReadAsByteArrayAsync();
+            var check = Provenance.ProvenanceVerifier.Verify(png);
+            Assert.True(check.Valid, check.Problem);
+            Assert.Equal(provenance, check.Provenance);
+        }
+    }
+
+    [Theory]
+    [InlineData("{\"stamp\": {\"position\": \"top\", \"text\": \"Signed by the CEO\"}}")]
+    [InlineData("{\"stamp\": {\"user\": \"someone else\"}}")]
+    [InlineData("{\"stamp\": {\"position\": \"left\"}}")]
+    [InlineData("{\"stamp\": true}")]
+    public async Task Pages_cannot_supply_provenance_values(string body)
+    {
+        _runtime.Origins.Pair(Site);
+        var request = Request(HttpMethod.Post, "/v1/scans", Site);
+        request.Content = new StringContent(body, System.Text.Encoding.UTF8, "application/json");
+
+        var response = await _http.SendAsync(request);
+
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        Assert.Equal("invalid_options", (await Error(response)).Error);
+    }
+
+    [Fact]
+    public async Task Site_approved_under_old_wording_is_asked_again_before_its_first_stamped_scan()
+    {
+        _runtime.Settings.Update(s => s.PairedOrigins.Add(new PairedOrigin { Origin = Site }));
+        Assert.True((await GetJson<StatusResponse>("/v1/status", Site)).Paired);
+
+        var stamped = Request(HttpMethod.Post, "/v1/scans", Site);
+        stamped.Content = JsonContent.Create(new { stamp = new { } });
+        var rejected = await _http.SendAsync(stamped);
+        Assert.Equal(HttpStatusCode.Forbidden, rejected.StatusCode);
+        Assert.Equal("approval_required", (await Error(rejected)).Error);
+
+        Assert.Equal(HttpStatusCode.OK, (await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site))).StatusCode);
+        Assert.Equal(1, Consent.PairingRequests);
+        Assert.Equal(HttpStatusCode.OK, (await _http.SendAsync(Request(HttpMethod.Post, "/v1/pair", Site))).StatusCode);
+        Assert.Equal(1, Consent.PairingRequests);
+
+        var retry = Request(HttpMethod.Post, "/v1/scans", Site);
+        retry.Content = JsonContent.Create(new { stamp = new { } });
+        Assert.Equal(HttpStatusCode.Accepted, (await _http.SendAsync(retry)).StatusCode);
+    }
+
+    [Fact]
+    public async Task Policy_required_stamp_applies_to_scans_that_did_not_ask()
+    {
+        await RestartAsync(policy: new PapertrailPolicy { ProvenanceStamp = new Provenance.ProvenanceStampPolicy { Mode = Provenance.StampMode.Required } });
+        _runtime.Origins.Pair(Site);
+
+        var created = await Json<ScanJobResponse>(await _http.SendAsync(Request(HttpMethod.Post, "/v1/scans", Site)));
+        var job = await PollUntilFinished(created.Id, Site);
+
+        Assert.True(job.Stamp!.RequiredByPolicy);
+        Assert.All(job.Pages, p => Assert.Equal(Provenance.StampPosition.Bottom, p.Provenance!.Position));
+    }
+
     private async Task StartAsync()
     {
         _runtime = new PapertrailRuntime(

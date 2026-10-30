@@ -117,6 +117,7 @@ export class PapertrailClient {
   /**
    * Scans and returns the pages as Blobs.
    * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages, format ('png'),
+   *   stamp ({ position: 'top'|'bottom' } adds papertrail's provenance band; each page then has `provenance`),
    *   barcodes (true to find barcodes: each page then has `barcodeStatus` and `barcodes`, and the result a flat `barcodes`),
    *   barcodeFormats (e.g. ['qrCode', 'code128']; default: all common formats)
    * @param {object} [hooks]
@@ -129,7 +130,7 @@ export class PapertrailClient {
 
     if (status) {
       if (!status.paired) await this.pair();
-      job = await this._json('POST', '/v1/scans', options);
+      job = await this._startScan(options);
     } else if (this._wasPaired() && this.origin) {
       // App not running but this site was paired before: start it and the scan with one link.
       const requestId = randomId();
@@ -137,7 +138,7 @@ export class PapertrailClient {
       job = await this._waitForProtocolJob(requestId, options, signal);
     } else {
       await this.connect();
-      job = await this._json('POST', '/v1/scans', options);
+      job = await this._startScan(options);
     }
 
     onProgress?.(job);
@@ -161,8 +162,21 @@ export class PapertrailClient {
     );
     this._json('DELETE', `/v1/scans/${job.id}`).catch(() => {});
     const result = { id: job.id, pages };
+    if (job.stamp) result.stamp = job.stamp;
     if (job.barcodes) result.barcodes = job.barcodes;
     return result;
+  }
+
+  async _startScan(options) {
+    try {
+      return await this._json('POST', '/v1/scans', options);
+    } catch (err) {
+      // Stamped scans send the user's name and computer name; sites approved before papertrail
+      // said so are asked once more.
+      if (err.code !== 'approval_required') throw err;
+      await this.pair();
+      return this._json('POST', '/v1/scans', options);
+    }
   }
 
   async _waitForProtocolJob(requestId, options, signal) {
@@ -185,7 +199,7 @@ export class PapertrailClient {
         // The pairing was revoked in the app. Re-pair over HTTP, where the Origin is verified.
         this._rememberPaired(false);
         await this.pair();
-        return this._json('POST', '/v1/scans', options);
+        return this._startScan(options);
       }
       if (err.code === 'timeout') throw await this._unreachableError();
       throw err;
@@ -280,6 +294,7 @@ export function buildScanUrl(origin, requestId, options = {}) {
   for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'showDriverUi', 'maxPages', 'format']) {
     if (options[key] !== undefined && options[key] !== null) params.set(key, String(options[key]));
   }
+  if (options.stamp) params.set('stamp', options.stamp.position ?? 'bottom');
   if (options.barcodes) params.set('barcodes', 'true');
   if (Array.isArray(options.barcodeFormats)) params.set('barcodeFormats', options.barcodeFormats.join(','));
   return `papertrail://scan?${params}`;

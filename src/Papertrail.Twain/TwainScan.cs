@@ -291,7 +291,7 @@ internal sealed class TwainScan
             if (_strips is { IsEmpty: false } strips)
             {
                 _strips = null;
-                AddPage(new ScannedPage(_pages.Count, OutputFormats.MediaType(_options.Format), strips.Width, strips.Height, strips.ToPng()));
+                AddPage(new ScannedPage(_pages.Count, OutputFormats.MediaType(_options.Format), strips.Width, strips.Height, strips.ToPng()) { ScannerName = _source?.Name });
             }
 
             if (_encodedStrips is { Length: > 0 } encoded)
@@ -330,7 +330,7 @@ internal sealed class TwainScan
         using var decoded = Image.FromStream(image);
         using var output = new MemoryStream();
         decoded.Save(output, encoding);
-        return new ScannedPage(_pages.Count, OutputFormats.MediaType(_options.Format), decoded.Width, decoded.Height, output.ToArray());
+        return new ScannedPage(_pages.Count, OutputFormats.MediaType(_options.Format), decoded.Width, decoded.Height, output.ToArray()) { ScannerName = _source?.Name };
     }
 
     private void Complete()

@@ -4,6 +4,7 @@ using Papertrail.Configuration;
 using Papertrail.Consent;
 using Papertrail.Jobs;
 using Papertrail.Protocol;
+using Papertrail.Provenance;
 using Papertrail.Scanning;
 using Papertrail.Security;
 
@@ -26,7 +27,8 @@ public sealed class PapertrailRuntime : IDisposable
         PapertrailPolicy policy,
         TimeProvider? time = null,
         ILoggerFactory? loggerFactory = null,
-        int port = FixedPort)
+        int port = FixedPort,
+        ProvenanceIdentity? identity = null)
     {
         loggerFactory ??= NullLoggerFactory.Instance;
         Backend = backend;
@@ -35,7 +37,12 @@ public sealed class PapertrailRuntime : IDisposable
         Policy = policy;
         Port = port;
         Origins = new OriginRegistry(settings, policy, time);
-        Jobs = new ScanJobManager(backend, Origins, time, logger: loggerFactory.CreateLogger<ScanJobManager>());
+        Jobs = new ScanJobManager(
+            backend,
+            Origins,
+            time,
+            logger: loggerFactory.CreateLogger<ScanJobManager>(),
+            provenance: new ProvenanceStamping(policy.ProvenanceStamp, identity));
         Logger = loggerFactory.CreateLogger<PapertrailRuntime>();
     }
 

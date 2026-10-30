@@ -1,5 +1,6 @@
 using System.Text.Json.Serialization;
 using Papertrail.Barcodes;
+using Papertrail.Provenance;
 
 namespace Papertrail.Scanning;
 
@@ -76,6 +77,9 @@ public sealed record ScanOptions
 
     public OutputFormat Format { get; init; } = OutputFormat.Png;
 
+    /// <summary>Add a provenance band to each page; null means no stamp (unless policy requires one).</summary>
+    public StampOptions? Stamp { get; init; }
+
     /// <summary>Find barcodes on every page; see <see cref="Papertrail.Barcodes.BarcodeDetector"/>.</summary>
     public bool Barcodes { get; init; }
 
@@ -117,6 +121,11 @@ public sealed record ScanOptions
             errors.Add("format is not supported.");
         }
 
+        if (Stamp is not null && !Enum.IsDefined(Stamp.Position))
+        {
+            errors.Add("stamp.position must be top or bottom.");
+        }
+
         errors.AddRange(BarcodeFormatSet.Validate(Barcodes, BarcodeFormats));
         return errors;
     }
@@ -144,6 +153,16 @@ public sealed class ScannedPage
     public int Height { get; }
 
     public byte[] Data { get; }
+
+    /// <summary>The scanner's own name for itself (TWAIN source name), when the backend knows it.</summary>
+    public string? ScannerName { get; init; }
+
+    /// <summary>Set on stamped pages: the record printed in the band and embedded in the PNG.</summary>
+    public PageProvenance? Provenance { get; private init; }
+
+    /// <summary>A copy with the stamped image. Keep every other per-page property when adding one.</summary>
+    public ScannedPage Stamped(byte[] data, int width, int height, PageProvenance provenance) =>
+        new(Index, MediaType, width, height, data) { ScannerName = ScannerName, Provenance = provenance };
 }
 
 /// <summary>A scanner-side failure with a message that is safe to show to the web page.</summary>

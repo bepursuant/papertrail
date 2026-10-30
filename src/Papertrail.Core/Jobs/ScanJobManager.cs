@@ -4,6 +4,7 @@ using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Papertrail.Barcodes;
+using Papertrail.Provenance;
 using Papertrail.Scanning;
 using Papertrail.Security;
 
@@ -55,6 +56,7 @@ public sealed partial class ScanJobManager : IDisposable
     private readonly ITimer _purgeTimer;
     private readonly ILogger _logger;
     private readonly BarcodeWorker _barcodeWorker;
+    private readonly ProvenanceStamping _provenance;
 
     public ScanJobManager(
         IScannerBackend backend,
@@ -64,6 +66,7 @@ public sealed partial class ScanJobManager : IDisposable
         TimeSpan? claimTimeout = null,
         ILogger<ScanJobManager>? logger = null,
         TimeSpan? scanTimeout = null,
+        ProvenanceStamping? provenance = null,
         BarcodeWorker? barcodeWorker = null)
     {
         _barcodeWorker = barcodeWorker ?? new BarcodeWorker();
@@ -74,6 +77,7 @@ public sealed partial class ScanJobManager : IDisposable
         _retention = retention ?? DefaultRetention;
         _claimTimeout = claimTimeout ?? DefaultClaimTimeout;
         _scanTimeout = scanTimeout ?? DefaultScanTimeout;
+        _provenance = provenance ?? new ProvenanceStamping();
         _purgeTimer = _time.CreateTimer(_ => PurgeExpired(), null, TimeSpan.FromMinutes(1), TimeSpan.FromMinutes(1));
     }
 
@@ -110,7 +114,12 @@ public sealed partial class ScanJobManager : IDisposable
             throw new JobRejectedException("invalid_request_id", "request id must be 16-64 characters of [A-Za-z0-9_-].");
         }
 
-        var job = new ScanJob(id, origin, options, trigger, _time.GetUtcNow());
+        var stamp = _provenance.Resolve(options.Stamp, _origins.ApprovalCoversIdentity(origin), out bool stampRequired);
+        var job = new ScanJob(id, origin, options with { Stamp = stamp }, trigger, _time.GetUtcNow())
+        {
+            StampRequiredByPolicy = stampRequired,
+            ScanId = stamp is null ? null : ProvenanceStamping.NewScanId(),
+        };
         if (!_jobs.TryAdd(id, job))
         {
             throw new JobRejectedException("duplicate_request_id", "A scan with this request id already exists.");
@@ -174,11 +183,24 @@ public sealed partial class ScanJobManager : IDisposable
     }
 
     /// <summary>Runs on the backend's thread (the TWAIN thread for real scanners), so it only queues work.</summary>
-    private void OnPage(ScanJob job, ScannedPage page)
+    private void OnPage(ScanJob job, ScannedPage page, List<ReceivedPage> held)
     {
-        // Barcodes are read from the page exactly as the scanner delivered it, before any later processing.
+        // Barcodes are read from a copy of the page exactly as the scanner delivered it.
+        // That copy is taken here, before a stamp replaces the image that gets published.
         job.Barcodes?.Enqueue(page, _barcodeWorker, job.Cancellation.Token);
-        job.AddPage(page);
+        if (job.Stamp is null)
+        {
+            job.AddPage(page);
+            return;
+        }
+
+        // Never publish a page before it is stamped. The band says "page N of M".
+        lock (held)
+        {
+            held.Add(new ReceivedPage(page, _time.GetUtcNow()));
+        }
+
+        job.HoldPage();
     }
 
     private async Task RunAsync(ScanJob job)
@@ -208,11 +230,17 @@ public sealed partial class ScanJobManager : IDisposable
         try
         {
             job.SetStatus(ScanJobStatus.Scanning);
-            var pages = await _backend.ScanAsync(job.Options, page => OnPage(job, page), ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
+            var held = new List<ReceivedPage>();
+            var pages = await _backend.ScanAsync(job.Options, page => OnPage(job, page, held), ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
             if (pages.Count == 0)
             {
                 Complete(job, ScanJobStatus.Failed, "no_pages", "The scanner returned no pages. Is there paper in the feeder?");
                 return;
+            }
+
+            if (job.Stamp is { } stamp)
+            {
+                await StampAsync(job, stamp, pages, held, ct).ConfigureAwait(false);
             }
 
             if (job.Barcodes is { } barcodes)
@@ -246,6 +274,43 @@ public sealed partial class ScanJobManager : IDisposable
         {
             _scanLock.Release();
         }
+    }
+
+    private async Task StampAsync(ScanJob job, StampOptions stamp, IReadOnlyList<ScannedPage> pages, List<ReceivedPage> held, CancellationToken ct)
+    {
+        IReadOnlyList<ReceivedPage> received;
+        lock (held)
+        {
+            var now = _time.GetUtcNow();
+            received = held.Count == pages.Count ? held.ToArray() : pages.Select(p => new ReceivedPage(p, now)).ToArray();
+        }
+
+        string scanner = received.All(p => !string.IsNullOrWhiteSpace(p.Page.ScannerName))
+            ? string.Empty
+            : await ScannerNameAsync(job.Options.ScannerId, ct).ConfigureAwait(false);
+        var stamped = await Task.Run(
+            () => _provenance.StampAll(received, stamp, job.Origin, job.ScanId!, scanner, job.Options.Dpi, _time.LocalTimeZone),
+            ct).ConfigureAwait(false);
+        job.ReleaseHeldPages(stamped);
+    }
+
+    private async Task<string> ScannerNameAsync(string? scannerId, CancellationToken ct)
+    {
+        try
+        {
+            var scanners = await _backend.ListScannersAsync(ct).ConfigureAwait(false);
+            var match = scanners.FirstOrDefault(s => scannerId is null ? s.IsDefault : s.Id == scannerId);
+            if (match is not null)
+            {
+                return match.Name;
+            }
+        }
+        catch (ScannerException ex)
+        {
+            _logger.LogInformation("Could not look up the scanner name for the stamp: {Code}", ex.Code);
+        }
+
+        return scannerId ?? "unknown scanner";
     }
 
     private void Complete(ScanJob job, ScanJobStatus status, string? code = null, string? message = null)

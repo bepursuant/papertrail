@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.Text;
 using Papertrail.Barcodes;
+using Papertrail.Provenance;
 using Papertrail.Scanning;
 
 namespace Papertrail.Protocol;
@@ -136,6 +137,11 @@ public static class PapertrailUri
         }
 
         Append(sb, "format", ToCamel(options.Format.ToString()));
+        if (StampUriParameter.Format(options.Stamp) is { } stamp)
+        {
+            Append(sb, StampUriParameter.Name, stamp);
+        }
+
         if (options.Barcodes)
         {
             Append(sb, "barcodes", "true");
@@ -228,12 +234,12 @@ public static class PapertrailUri
             options = options with { Format = value };
         }
 
-        if (!TryReadBool(p, "barcodes", out bool? barcodes, ref error))
+        if (!StampUriParameter.TryRead(p, out var stampOptions, out error) || !TryReadBool(p, "barcodes", out bool? barcodes, ref error))
         {
             return false;
         }
 
-        options = options with { Barcodes = barcodes ?? false };
+        options = options with { Stamp = stampOptions, Barcodes = barcodes ?? false };
         if (p.TryGetValue("barcodeFormats", out string? barcodeFormats))
         {
             if (!BarcodeFormatSet.TryParseList(barcodeFormats, out var set))

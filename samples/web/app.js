@@ -71,8 +71,36 @@ function readOptions() {
     source: data.get('source'),
     duplex: data.get('duplex') === 'on',
     showDriverUi: data.get('showDriverUi') === 'on',
+    stamp: data.get('stamp') ? { position: data.get('stamp') } : undefined,
     ...(data.get('barcodes') === 'on' ? { barcodes: true } : {}),
   };
+}
+
+/** Shows what papertrail stamped on the page (values come from papertrail, not from this page). */
+function provenanceList(p) {
+  const list = document.createElement('dl');
+  list.className = 'provenance';
+  const rows = [
+    ['Scan ID', p.scanId],
+    ['Scanned', new Date(p.scannedAt).toLocaleString()],
+    ['Computer', p.workstation],
+    ['User', p.user],
+    ['Scanner', p.scanner],
+    ['Page', `${p.page} of ${p.pageCount}`],
+    ['SHA-256', `${p.originalSha256.slice(0, 16)}…`],
+  ];
+  for (const [label, value] of rows) {
+    const dt = document.createElement('dt');
+    dt.textContent = label;
+    const dd = document.createElement('dd');
+    dd.textContent = value;
+    if (label === 'SHA-256') {
+      dd.className = 'hash';
+      dd.title = p.originalSha256;
+    }
+    list.append(dt, dd);
+  }
+  return list;
 }
 
 const SVG = 'http://www.w3.org/2000/svg';
@@ -150,6 +178,7 @@ function renderPages(pages, barcodes) {
     const download = item.querySelector('.download');
     download.href = url;
     download.download = `scan-page-${number}.png`;
+    if (page.provenance) item.querySelector('.meta').append(provenanceList(page.provenance));
     if (page.barcodeStatus) {
       item.querySelector('.thumb').append(barcodeOverlay(page));
       const codes = document.createElement('span');
@@ -192,15 +221,19 @@ form.addEventListener('submit', async (event) => {
     const result = await client.scan(readOptions(), {
       onProgress: (job) => {
         progress.textContent = STATUS_TEXT[job.status] ?? '';
-        if (job.status === 'scanning' && job.pages.length) {
+        const scanned = job.pagesScanned ?? job.pages.length;
+        if (job.status === 'scanning' && scanned) {
           const reading = job.pages.filter((p) => p.barcodeStatus === 'pending').length;
-          progress.textContent = `Scanning… ${job.pages.length} page(s) so far${reading ? ` · reading barcodes on ${reading}` : ''}`;
+          progress.textContent = `Scanning… ${scanned} page(s) so far${reading ? ` · reading barcodes on ${reading}` : ''}`;
         }
       },
     });
     renderPages(result.pages, result.barcodes);
     const found = result.barcodes ? ` · ${result.barcodes.length} barcode(s)` : '';
     progress.textContent = `Done · ${result.pages.length} page(s)${found}`;
+    if (result.stamp) {
+      progress.textContent += ` · stamped (${result.stamp.scanId}${result.stamp.requiredByPolicy ? ', required by policy' : ''})`;
+    }
     if (scannerSelect.disabled) loadScanners().catch(() => {});
   } catch (err) {
     progress.textContent = '';

@@ -6,6 +6,45 @@ export type ScanStatus = 'queued' | 'scanning' | 'completed' | 'failed' | 'cance
 /** Only 'png' (one image per page) today. */
 export type OutputFormat = 'png';
 
+export type StampPosition = 'top' | 'bottom';
+
+/**
+ * Asks papertrail to add its provenance band to each page. The page can only choose the
+ * position: every value in the band comes from papertrail. Policy may also require the stamp.
+ */
+export interface StampOptions {
+  position?: StampPosition;
+}
+
+/** Printed in the band, embedded in the PNG (iTXt "papertrail:provenance") and returned here. */
+export interface PageProvenance {
+  version: 1;
+  /** Made by papertrail for the whole scan, e.g. "PT-7K3M-9QX2". */
+  scanId: string;
+  /** Local time with UTC offset, ISO 8601. */
+  scannedAt: string;
+  scannedAtUtc: string;
+  workstation: string;
+  /** DOMAIN\user */
+  user: string;
+  scanner: string;
+  origin: string;
+  page: number;
+  pageCount: number;
+  /** SHA-256 of the page before the band was added (canonical pixels, see hashMethod). */
+  originalSha256: string;
+  hashMethod: 'papertrail-pixels-v1';
+  position: StampPosition;
+  bandHeight: number;
+  software: string;
+}
+
+export interface StampInfo {
+  position: StampPosition;
+  requiredByPolicy: boolean;
+  scanId: string;
+}
+
 export interface ScanOptions {
   scannerId?: string;
   dpi?: number;
@@ -15,6 +54,7 @@ export interface ScanOptions {
   showDriverUi?: boolean;
   maxPages?: number;
   format?: OutputFormat;
+  stamp?: StampOptions | null;
   /** Find barcodes on every page. */
   barcodes?: boolean;
   /** Formats to look for (needs `barcodes: true`); default: every format except aztec, code93 and codabar. */
@@ -66,6 +106,8 @@ export interface PageInfo {
   height: number;
   size: number;
   url: string;
+  /** Only on stamped pages. */
+  provenance?: PageProvenance;
   /** Only when the scan asked for barcodes. */
   barcodeStatus?: BarcodeStatus;
   barcodes?: Barcode[];
@@ -80,6 +122,9 @@ export interface ScanJob {
   finishedAt?: string;
   error?: { error: string; message: string };
   pages: PageInfo[];
+  /** Pages received so far. Stamped scans list their pages only once all are stamped. */
+  pagesScanned: number;
+  stamp?: StampInfo;
   /** Every page's barcodes in page order; only when the scan asked for barcodes. */
   barcodes?: Barcode[];
 }
@@ -87,6 +132,7 @@ export interface ScanJob {
 export interface ScanResult {
   id: string;
   pages: Array<PageInfo & { blob: Blob }>;
+  stamp?: StampInfo;
   /** Every page's barcodes in page order; only when the scan asked for barcodes. */
   barcodes?: Barcode[];
 }

@@ -116,7 +116,7 @@ public static class PapertrailServer
         v1.MapPost("/pair", async (HttpContext ctx) =>
         {
             string origin = OriginOf(ctx);
-            if (runtime.Origins.IsPaired(origin))
+            if (IsApproved(runtime, origin) || (runtime.Origins.IsPaired(origin) && !runtime.Origins.AllowPairing))
             {
                 return Results.Ok(new PairResponse(true));
             }
@@ -145,7 +145,7 @@ public static class PapertrailServer
 
             try
             {
-                if (runtime.Origins.IsPaired(origin))
+                if (IsApproved(runtime, origin))
                 {
                     return Results.Ok(new PairResponse(true));
                 }
@@ -219,7 +219,12 @@ public static class PapertrailServer
             }
             catch (JobRejectedException ex)
             {
-                return Error(ex.Code == "too_many_jobs" ? StatusCodes.Status429TooManyRequests : StatusCodes.Status400BadRequest, ex.Code, ex.Message);
+                return Error(ex.Code switch
+                {
+                    "too_many_jobs" => StatusCodes.Status429TooManyRequests,
+                    "approval_required" or "stamp_disabled" => StatusCodes.Status403Forbidden,
+                    _ => StatusCodes.Status400BadRequest,
+                }, ex.Code, ex.Message);
             }
         });
 
@@ -262,6 +267,13 @@ public static class PapertrailServer
 
         app.MapFallback(() => Error(StatusCodes.Status404NotFound, "not_found", "Unknown endpoint."));
     }
+
+    /// <summary>
+    /// Paired with the current approval wording. A site approved under older wording is asked
+    /// again, so the user sees that stamped scans include their user and computer names.
+    /// </summary>
+    private static bool IsApproved(PapertrailRuntime runtime, string origin) =>
+        runtime.Origins.IsPaired(origin) && runtime.Origins.ApprovalCoversIdentity(origin);
 
     private static string OriginOf(HttpContext ctx) => (string)ctx.Items[OriginItemKey]!;
 

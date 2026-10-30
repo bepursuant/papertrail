@@ -66,6 +66,36 @@ test('e2e: papertrail://scan forwarded from a second process is collected by req
   assert.equal(result.pages.length, 1);
 });
 
+test('e2e: stamped scan adds the provenance band and returns the record', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
+  const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null, pollIntervalMs: 50 });
+  await client.connect({ launch: false });
+  const plain = await client.scan({ source: 'flatbed', colorMode: 'gray' });
+
+  const result = await client.scan({ source: 'feeder', maxPages: 2, colorMode: 'gray', stamp: { position: 'bottom' } });
+
+  assert.match(result.stamp.scanId, /^PT-[0-9A-Z]{4}-[0-9A-Z]{4}$/);
+  assert.equal(result.pages.length, 2);
+  for (const [i, page] of result.pages.entries()) {
+    const p = page.provenance;
+    assert.equal(p.origin, ORIGIN);
+    assert.equal(p.scanId, result.stamp.scanId);
+    assert.deepEqual([p.page, p.pageCount], [i + 1, 2]);
+    assert.match(p.originalSha256, /^[0-9a-f]{64}$/);
+    assert.match(p.user, /\\/);
+    assert.equal(page.height, plain.pages[0].height + p.bandHeight);
+    const text = new TextDecoder('latin1').decode(await page.blob.arrayBuffer());
+    assert.ok(text.includes('iTXtpapertrail:provenance'));
+    assert.ok(text.includes(p.originalSha256));
+  }
+  assert.equal(plain.pages[0].provenance, undefined);
+});
+
+test('e2e: pages cannot put their own text in the stamp', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
+  const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null });
+  await client.connect({ launch: false });
+  await assert.rejects(client._json('POST', '/v1/scans', { stamp: { position: 'top', user: 'CEO' } }), (err) => err.code === 'invalid_options');
+});
+
 test('e2e: barcode scan returns rotated codes from the mock barcode sheet', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
   const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null, pollIntervalMs: 50 });
   await client.connect({ launch: false });

@@ -4,6 +4,7 @@ using Papertrail;
 using Papertrail.Configuration;
 using Papertrail.Consent;
 using Papertrail.Hosting;
+using Papertrail.Provenance;
 using Papertrail.Scanning;
 using Papertrail.Server;
 
@@ -17,6 +18,7 @@ var preApproved = new List<string>();
 var urls = new List<string>();
 int pageDelayMs = 400;
 string? settingsPath = null;
+StampMode stampMode = StampMode.Optional;
 
 for (int i = 0; i < args.Length; i++)
 {
@@ -42,6 +44,15 @@ for (int i = 0; i < args.Length; i++)
         case "--settings":
             settingsPath = args[++i];
             break;
+        case "--stamp":
+            stampMode = args[++i] switch
+            {
+                "optional" => StampMode.Optional,
+                "required" => StampMode.Required,
+                "disabled" => StampMode.Disabled,
+                var other => throw new ArgumentException($"--stamp must be optional, required or disabled, not '{other}'."),
+            };
+            break;
         case "--write-barcode-sheets":
             string folder = args[++i];
             Directory.CreateDirectory(folder);
@@ -62,6 +73,7 @@ for (int i = 0; i < args.Length; i++)
                   --allow-origin <url>   pre-approve an origin, like policy.json AllowedOrigins
                   --page-delay-ms <n>    simulated time per page (default 400)
                   --settings <path>      persist pairings to a JSON file (default: in memory)
+                  --stamp <mode>         provenance stamp policy: optional (default), required, disabled
                   --write-barcode-sheets <folder>
                                          write the mock barcode test sheets as printable PNGs and exit
                   papertrail://...       forward a protocol URL to the running host (or handle it at startup)
@@ -83,7 +95,7 @@ if (urls.Count > 0 && await SingleInstanceChannel.TrySendAsync(urls.ToArray(), p
 using var loggerFactory = LoggerFactory.Create(b => b.AddSimpleConsole(o => o.SingleLine = true).SetMinimumLevel(LogLevel.Information));
 var logger = loggerFactory.CreateLogger("papertrail");
 
-var policy = new PapertrailPolicy { AllowedOrigins = preApproved };
+var policy = new PapertrailPolicy { AllowedOrigins = preApproved, ProvenanceStamp = new ProvenanceStampPolicy { Mode = stampMode } };
 var settings = new SettingsStore(settingsPath);
 var consent = new LoggingConsent(new FixedConsentService(allow), logger);
 using var runtime = new PapertrailRuntime(
