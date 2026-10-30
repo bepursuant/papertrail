@@ -41,6 +41,7 @@ export class PapertrailClient {
    * @param {typeof fetch} [options.fetch]
    * @param {string} [options.origin] defaults to location.origin
    * @param {Storage | null} [options.storage] remembers that this site was paired (default: localStorage)
+   * @param {string} [options.installerUrl] MSI download shown when papertrail cannot be started
    */
   constructor(options = {}) {
     this.port = options.port ?? DEFAULT_PORT;
@@ -48,6 +49,7 @@ export class PapertrailClient {
     this.pollIntervalMs = options.pollIntervalMs ?? 500;
     this.launchTimeoutMs = options.launchTimeoutMs ?? 20000;
     this.scanTimeoutMs = options.scanTimeoutMs ?? 600000;
+    this.installerUrl = options.installerUrl || undefined;
     this._launch = options.launch ?? ((url) => { globalThis.location.href = url; });
     this._fetch = options.fetch ?? globalThis.fetch.bind(globalThis);
     this.origin = options.origin ?? globalThis.location?.origin;
@@ -212,6 +214,9 @@ export class PapertrailClient {
         'loopback_blocked',
         'Your browser is blocking this site from reaching apps on your device. Allow it in the site settings, then retry.',
       );
+    }
+    if (this.installerUrl) {
+      return new PapertrailError('setup_required', 'Please complete this one-time setup.', { installerUrl: this.installerUrl });
     }
     return new PapertrailError('not_running', 'papertrail is not running. Install it or start it from the Start menu, then retry.');
   }

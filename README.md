@@ -85,9 +85,9 @@ Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes a
 | `src/Papertrail.App` | `Papertrail.exe`: tray app, pairing dialog, approved-sites window, protocol and auto-start registration (Windows, x86) |
 | `src/Papertrail.DevHost` | Headless host with the mock scanner, for Linux, macOS, CI and demos |
 | `clients/js` | Browser client (`papertrail.js` plus `.d.ts`), with unit and end-to-end tests |
-| `samples/web`, `samples/Papertrail.SampleSite` | Demo page and its static host on `http://127.0.0.1:47200` |
+| `docs/`, `samples/Papertrail.SampleSite` | Static demo page (GitHub Pages root) and a local host for it on `http://127.0.0.1:47200` |
 | `installer/` | WiX source for the MSI: `Papertrail.wxs` (package), `Dialogs.wxs` (installer screens), `License.rtf` (license text) |
-| `branding/` | Logo: `logo.svg` (master), `logo-16.svg` (pixel-aligned for 16-40 px), `papertrail.ico` (used by the exe, tray, MSI). `node branding/build-icons.mjs` regenerates the `.ico` and the sample page's copy of the logo with headless Chrome |
+| `branding/` | Logo: `logo.svg` (master), `logo-16.svg` (pixel-aligned for 16-40 px), `papertrail.ico` (used by the exe, tray, MSI). `node branding/build-icons.mjs` regenerates the `.ico` and `docs/logo.svg` with headless Chrome |
 | `tests/` | xUnit tests for Core and the API |
 | `scripts/` | `test.sh` (everything except Windows-only checks), `build-msi.ps1` (Windows: build, sign, validate), `build-msi.sh` (Linux via Wine: unsigned dev build) |
 
@@ -186,6 +186,35 @@ On Linux, `scripts/build-msi.sh` builds an unsigned MSI by running WiX under Win
 
 For CI, run `scripts/build-msi.ps1 -RequireSigning` on a `windows-latest` runner, with the certificate supplied through the `PAPERTRAIL_SIGN_*` secrets.
 
+### GitHub repository
+
+Create an empty private repository in the enterprise org (no generated README or license, so the histories do not diverge). Push this `main` branch to it. Pull requests from Cursor open on whichever forge is the project's source of truth. Pointing that at the GitHub repository is what makes new pull requests land there; adding a second git remote does not, by itself.
+
+`docs/config.js` assumes the repository is `pursuant-solutions/papertrail-poc` on github.com. If the org, name, or host differs, change `installerUrl` there.
+
+### One-time setup link
+
+The demo page cannot tell "not installed" from "installed, but the browser never handed off the `papertrail://` link". When a scan cannot start the app, and `docs/config.js` has an `installerUrl`, the page says **Please complete this one-time setup** and links to that URL. Pass the same option to `PapertrailClient` from your own page (`installerUrl`); the error code is `setup_required` and the URL is `error.details.installerUrl`. Without that option the client still reports `not_running`.
+
+The URL in `docs/config.js` is a GitHub release asset with a fixed name:
+
+`https://github.com/pursuant-solutions/papertrail-poc/releases/latest/download/papertrail-x86.msi`
+
+After `scripts/build-msi.ps1`, publish it under that name (the file the script writes includes the version; the release asset should not):
+
+```powershell
+Copy-Item artifacts\msi\papertrail-0.1.0-x86.msi papertrail-x86.msi
+gh release create v0.1.0 papertrail-x86.msi --title "papertrail 0.1.0"
+```
+
+`releases/latest` always points at the newest release, so the demo does not change when the version does. On a private repository, GitHub only serves that file to someone who is signed in and allowed to read the repo. A public demo needs a public repository, or a public release.
+
+### Demo site on GitHub Pages
+
+`docs/index.html` is a static page. It talks to papertrail on the visitor's own computer (`http://127.0.0.1:47115`); GitHub only hosts the page. `docs/lib/papertrail.js` is a copy of `clients/js/papertrail.js`. The test `clients/js/test/demo-site.test.mjs` fails if the copy drifts. `samples/Papertrail.SampleSite` serves the same `docs/` folder at `http://127.0.0.1:47200` for local checks.
+
+In the GitHub repository: **Settings → Pages → Deploy from a branch → main → /docs**. `docs/.nojekyll` keeps GitHub from running Jekyll on the folder. `docs/architecture.md` stays at `/architecture.md` and is not the homepage.
+
 ### Run without installing
 
 `dotnet publish src/Papertrail.App -c Release -o artifacts/publish/win-x86` produces a single `Papertrail.exe` (the x86 runtimes above are still needed). Started from any folder, it registers the URL handler for itself on first run.
@@ -239,7 +268,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 - `await client.connect()` makes sure the app is running (launching it via `papertrail://launch` if needed) and that the site is paired.
 - `await client.listScanners()` lists scanners.
 - `await client.scan(options, { onProgress, signal })` returns `{ id, pages: [{ index, width, height, mediaType, blob, provenance? }], stamp? }`. Pass `stamp: { position: 'bottom' }` for the provenance stamp. With `barcodes: true` the result also has `barcodes`, and each page has `barcodeStatus` and `barcodes`. If the app isn't running, it starts it via a `papertrail://` link.
-- Errors are `PapertrailError` objects with a `code`, such as `not_running`, `loopback_blocked`, `pairing_denied` or `paper_jam`.
+- Errors are `PapertrailError` objects with a `code`, such as `not_running`, `setup_required` (when `installerUrl` is set and the app never starts), `loopback_blocked`, `pairing_denied` or `paper_jam`.
 - Call these from a click handler, and serve your site over HTTPS. Browsers deny loopback access to insecure public pages.
 - If your page runs in an iframe, the embedding page must delegate `allow="loopback-network"`.
 

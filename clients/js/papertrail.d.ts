@@ -151,6 +151,11 @@ export interface PapertrailClientOptions {
   fetch?: typeof fetch;
   origin?: string;
   storage?: Storage | null;
+  /**
+   * Download for the Windows installer. When set, a scan that cannot start papertrail fails with
+   * `setup_required` and this URL in `details.installerUrl`, instead of `not_running`.
+   */
+  installerUrl?: string;
 }
 
 export declare class PapertrailError extends Error {

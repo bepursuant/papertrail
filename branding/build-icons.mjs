@@ -27,12 +27,12 @@ const sources = {
 
 const frames = await renderWithChrome(sizes.map((size) => ({ size, svg: fromSmallGrid.has(size) ? sources.small : sources.large })));
 writeFileSync(join(here, 'papertrail.ico'), buildIco(frames));
-copyFileSync(join(here, 'logo.svg'), join(root, 'samples', 'web', 'logo.svg'));
+copyFileSync(join(here, 'logo.svg'), join(root, 'docs', 'logo.svg'));
 if (pngDir) {
   mkdirSync(pngDir, { recursive: true });
   for (const f of frames) writeFileSync(join(pngDir, `papertrail-${f.size}.png`), encodePng(f));
 }
-console.log(`Wrote branding/papertrail.ico (${frames.map((f) => f.size).join(', ')} px) and samples/web/logo.svg`);
+console.log(`Wrote branding/papertrail.ico (${frames.map((f) => f.size).join(', ')} px) and docs/logo.svg`);
 
 async function renderWithChrome(jobs) {
   const work = mkdtempSync(join(tmpdir(), 'papertrail-icons-'));

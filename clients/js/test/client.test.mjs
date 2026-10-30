@@ -182,6 +182,20 @@ test('reports not_running when the app never comes up', async () => {
   await assert.rejects(client(app, { launch: () => {} }).connect(), (err) => err.code === 'not_running');
 });
 
+test('offers the one-time installer when a download URL is configured and the app never starts', async () => {
+  const app = new FakeApp({ running: false });
+  const installerUrl = 'https://github.com/pursuant-solutions/papertrail-poc/releases/latest/download/papertrail-x86.msi';
+  const launched = [];
+  await assert.rejects(
+    client(app, { launch: (url) => launched.push(url), installerUrl }).scan(),
+    (err) => err instanceof PapertrailError
+      && err.code === 'setup_required'
+      && err.message === 'Please complete this one-time setup.'
+      && err.details.installerUrl === installerUrl,
+  );
+  assert.deepEqual(launched, ['papertrail://launch']);
+});
+
 test('retries without targetAddressSpace when the browser rejects the value', async () => {
   const app = new FakeApp({ paired: true });
   const seen = [];
