@@ -66,6 +66,32 @@ test('e2e: papertrail://scan forwarded from a second process is collected by req
   assert.equal(result.pages.length, 1);
 });
 
+test('e2e: barcode scan returns rotated codes from the mock barcode sheet', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
+  const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null, pollIntervalMs: 50 });
+  await client.connect({ launch: false });
+
+  const result = await client.scan({ scannerId: 'mock-barcodes', dpi: 120, maxPages: 1, barcodes: true });
+
+  assert.equal(result.pages.length, 1);
+  assert.equal(result.pages[0].barcodeStatus, 'done');
+  const byText = Object.fromEntries(result.barcodes.map((b) => [b.text, b]));
+  const upright = byText['https://papertrail.example/doc/P1-R0'];
+  const turned = byText['PT-C128-P1-R270'];
+  assert.equal(upright.format, 'qrCode');
+  assert.equal(upright.rotation, 0);
+  assert.equal(upright.orientation, 0);
+  assert.ok(upright.points.length >= 3);
+  assert.equal(turned.format, 'code128');
+  assert.equal(turned.rotation, 90);
+  assert.equal(turned.orientation, 270);
+  assert.equal(result.pages[0].barcodes.length, result.barcodes.length);
+
+  await assert.rejects(
+    client._json('POST', '/v1/scans', { barcodeFormats: ['qrCode'] }),
+    (err) => err.code === 'invalid_options',
+  );
+});
+
 test('e2e: formats other than png are rejected', { skip: !DLL && 'set PAPERTRAIL_DEVHOST_DLL' }, async () => {
   const client = new PapertrailClient({ port: PORT, fetch: withOrigin(ORIGIN), origin: ORIGIN, storage: null });
   await client.connect({ launch: false });

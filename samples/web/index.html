@@ -62,6 +62,7 @@
 
         <label class="check"><input type="checkbox" name="duplex" /> Scan both sides (duplex)</label>
         <label class="check"><input type="checkbox" name="showDriverUi" /> Use the scanner's own settings dialog</label>
+        <label class="check"><input type="checkbox" name="barcodes" /> Find barcodes (QR, Data Matrix, PDF417, Code 128/39, EAN/UPC, ITF)</label>
 
         <button type="submit" id="scan" class="primary">Scan</button>
         <p id="progress" class="progress" aria-live="polite"></p>
@@ -89,6 +90,13 @@
         <p>Scanned pages will appear here.</p>
       </div>
       <ol id="pages" class="pages"></ol>
+      <div id="barcodes" class="barcodes" hidden>
+        <h2>Barcodes</h2>
+        <table>
+          <thead><tr><th>Page</th><th>Format</th><th>Text</th><th>Orientation</th></tr></thead>
+          <tbody id="barcode-rows"></tbody>
+        </table>
+      </div>
     </section>
   </main>
 

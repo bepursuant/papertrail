@@ -15,6 +15,31 @@ export interface ScanOptions {
   showDriverUi?: boolean;
   maxPages?: number;
   format?: OutputFormat;
+  /** Find barcodes on every page. */
+  barcodes?: boolean;
+  /** Formats to look for (needs `barcodes: true`); default: every format except aztec, code93 and codabar. */
+  barcodeFormats?: BarcodeFormat[];
+}
+
+export type BarcodeFormat =
+  | 'qrCode' | 'dataMatrix' | 'pdf417' | 'aztec'
+  | 'code128' | 'code39' | 'code93' | 'codabar'
+  | 'ean13' | 'ean8' | 'upcA' | 'upcE' | 'itf';
+
+/** 'pending' until analysed; 'partial' when the time budget ran out; 'skipped' when not analysed. */
+export type BarcodeStatus = 'pending' | 'done' | 'partial' | 'failed' | 'skipped';
+
+export interface Barcode {
+  /** Index of the page it is on. */
+  page: number;
+  format: BarcodeFormat;
+  text: string;
+  /** Detection pass that found it: the page turned clockwise by 0, 90, 180 or 270 degrees. */
+  rotation: 0 | 90 | 180 | 270;
+  /** Reading direction on the page, degrees clockwise (0 upright, 180 upside down); absent when unknown. */
+  orientation?: number;
+  /** Page pixel coordinates: the scan line's ends for 1D codes, corners/finder patterns for 2D codes. */
+  points: Array<{ x: number; y: number }>;
 }
 
 export interface AppStatus {
@@ -41,6 +66,9 @@ export interface PageInfo {
   height: number;
   size: number;
   url: string;
+  /** Only when the scan asked for barcodes. */
+  barcodeStatus?: BarcodeStatus;
+  barcodes?: Barcode[];
 }
 
 export interface ScanJob {
@@ -52,11 +80,15 @@ export interface ScanJob {
   finishedAt?: string;
   error?: { error: string; message: string };
   pages: PageInfo[];
+  /** Every page's barcodes in page order; only when the scan asked for barcodes. */
+  barcodes?: Barcode[];
 }
 
 export interface ScanResult {
   id: string;
   pages: Array<PageInfo & { blob: Blob }>;
+  /** Every page's barcodes in page order; only when the scan asked for barcodes. */
+  barcodes?: Barcode[];
 }
 
 export interface PapertrailClientOptions {

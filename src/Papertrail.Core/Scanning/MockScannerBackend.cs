@@ -23,11 +23,18 @@ public sealed class MockScannerBackend : IScannerBackend
     public const string FeederId = "mock-feeder";
     public const string JammedId = "mock-jammed";
 
+    /// <summary>A feeder whose pages are <see cref="Barcodes.MockBarcodeSheet"/> test sheets with rotated barcodes.</summary>
+    public const string BarcodesId = "mock-barcodes";
+
+    /// <summary>Barcode sheets are rendered at the requested resolution, up to this one.</summary>
+    public const int MaxBarcodeSheetDpi = 300;
+
     private static readonly IReadOnlyList<ScannerInfo> Scanners =
     [
         new(FeederId, "papertrail mock feeder (duplex)", "papertrail", "mock", IsDefault: true),
         new(FlatbedId, "papertrail mock flatbed", "papertrail", "mock", IsDefault: false),
         new(JammedId, "papertrail mock jammed scanner", "papertrail", "mock", IsDefault: false),
+        new(BarcodesId, "papertrail mock feeder with barcode test sheets", "papertrail", "mock", IsDefault: false),
     ];
 
     private readonly MockScannerOptions _options;
@@ -56,7 +63,7 @@ public sealed class MockScannerBackend : IScannerBackend
             throw new ScannerException("paper_jam", "The scanner reported a paper jam.");
         }
 
-        bool useFeeder = options.Source == PaperSource.Feeder || (options.Source == PaperSource.Auto && scannerId == FeederId);
+        bool useFeeder = options.Source == PaperSource.Feeder || (options.Source == PaperSource.Auto && scannerId is FeederId or BarcodesId);
         bool duplex = useFeeder && options.Duplex;
         int pageCount = useFeeder ? _options.FeederSheets * (duplex ? 2 : 1) : 1;
         if (options.MaxPages > 0)
@@ -68,7 +75,9 @@ public sealed class MockScannerBackend : IScannerBackend
         for (int i = 0; i < pageCount; i++)
         {
             await Task.Delay(_options.PageDelay, cancellationToken).ConfigureAwait(false);
-            var page = RenderPage(i, pageCount, options, useFeeder, duplex);
+            var page = scannerId == BarcodesId
+                ? Encode(i, Barcodes.MockBarcodeSheet.Render(i, pageCount, Math.Min(options.Dpi, MaxBarcodeSheetDpi)), options)
+                : RenderPage(i, pageCount, options, useFeeder, duplex);
             pages.Add(page);
             onPage?.Invoke(page);
         }
@@ -115,7 +124,11 @@ public sealed class MockScannerBackend : IScannerBackend
         };
         string footer = $"{options.Dpi} DPI  {mode}  {(feeder ? "FEEDER" : "FLATBED")}";
         canvas.DrawText(footer, margin, height - (margin * 2), unit * 2, ink);
+        return Encode(index, canvas, options);
+    }
 
+    private static ScannedPage Encode(int index, Canvas canvas, ScanOptions options)
+    {
         bool grayscale = options.ColorMode != ColorMode.Color;
         bool threshold = options.ColorMode == ColorMode.BlackWhite;
         byte[] data = options.Format switch
@@ -123,6 +136,6 @@ public sealed class MockScannerBackend : IScannerBackend
             OutputFormat.Png => canvas.ToPng(grayscale, threshold),
             _ => throw new ScannerException("unsupported_format", $"The mock scanner cannot produce {options.Format}."),
         };
-        return new ScannedPage(index, OutputFormats.MediaType(options.Format), width, height, data);
+        return new ScannedPage(index, OutputFormats.MediaType(options.Format), canvas.Width, canvas.Height, data);
     }
 }

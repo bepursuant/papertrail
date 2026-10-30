@@ -4,6 +4,7 @@ using System.Text.Json;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Papertrail.Barcodes;
 using Papertrail.Configuration;
 using Papertrail.Consent;
 using Papertrail.Imaging;
@@ -207,8 +208,37 @@ public sealed class ApiTests : IAsyncLifetime
         Assert.Equal(HttpStatusCode.Forbidden, response.StatusCode);
     }
 
+    [Fact]
+    public async Task Barcode_request_returns_per_page_and_flat_results()
+    {
+        _runtime.Origins.Pair(Site);
+        var create = Request(HttpMethod.Post, "/v1/scans", Site);
+        create.Content = JsonContent.Create(new { scannerId = MockScannerBackend.BarcodesId, dpi = 120, barcodes = true, maxPages = 1 });
+
+        var job = await PollUntilFinished((await Json<ScanJobResponse>(await _http.SendAsync(create))).Id, Site);
+
+        Assert.Equal(Jobs.ScanJobStatus.Completed, job.Status);
+        Assert.Equal(BarcodeStatus.Done, job.Pages[0].BarcodeStatus);
+        var barcodes = Assert.IsAssignableFrom<IReadOnlyList<BarcodeResult>>(job.Barcodes);
+        Assert.Equal(barcodes.Select(b => b.Text).Order(), job.Pages[0].Barcodes!.Select(b => b.Text).Order());
+        Assert.Contains(barcodes, b => b.Format == BarcodeFormat.Code128 && b.Rotation == 90 && b.Orientation == 270);
+        Assert.All(barcodes, b => Assert.True(b.Points.Count >= 2));
+    }
+
+    [Fact]
+    public async Task A_scan_without_barcodes_omits_them()
+    {
+        _runtime.Origins.Pair(Site);
+        var job = await PollUntilFinished((await Json<ScanJobResponse>(await _http.SendAsync(Request(HttpMethod.Post, "/v1/scans", Site)))).Id, Site);
+
+        Assert.Null(job.Barcodes);
+        Assert.All(job.Pages, p => Assert.Null(p.BarcodeStatus));
+    }
+
     [Theory]
     [InlineData("{\"dpi\": 5}")]
+    [InlineData("{\"barcodeFormats\": [\"qrCode\"]}")]
+    [InlineData("{\"barcodes\": true, \"barcodeFormats\": [\"upc\"]}")]
     [InlineData("{\"colorMode\": \"sepia\"}")]
     [InlineData("{\"colorMode\": 1}")]
     [InlineData("{\"format\": \"pdf\"}")]

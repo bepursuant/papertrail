@@ -13,6 +13,7 @@ before adding a package to `Directory.Packages.props` or a tool to `.config/dotn
 | .NET runtime, ASP.NET Core (Kestrel), Windows Desktop (WinForms, WPF, System.Drawing) | 10.0 | MIT | https://github.com/dotnet |
 | Microsoft.Extensions.Logging.Abstractions | 10.0.14 | MIT | https://github.com/dotnet/runtime |
 | NTwain | 3.7.6 | MIT | https://github.com/soukoku/ntwain |
+| ZXing.Net | 0.16.11 | Apache-2.0 | https://github.com/micjahn/ZXing.Net |
 
 `Papertrail.exe` is a framework-dependent build: the .NET runtimes are not inside the MSI. Users
 install Microsoft's own x86 .NET Desktop Runtime and ASP.NET Core Runtime (MIT), which the MSI
@@ -43,6 +44,8 @@ MSI uses no WiX extensions or custom-action DLLs, so it contains no WiX code at 
 `Papertrail.exe` and Windows Installer tables. Do not upgrade the tool past 5.x without settling
 the fee.
 
+ZXing.Net is a hand port of the ZXing barcode library. Both are Apache-2.0. The package carries no NOTICE file; the license text is at <https://www.apache.org/licenses/LICENSE-2.0.txt> and in the ZXing.Net repository (`COPYING`). papertrail uses the core assembly only and does not ship any ZXing image binding.
+
 The JS client (`clients/js`) and the sample page have no third-party dependencies.
 
 ## Logo and icons
@@ -67,6 +70,10 @@ images carry no third-party terms. The sample page's header text uses the visito
 | WiX Toolset v4 | Same license as v5 (MS-RL) but older. v5 is the newer fee-free release |
 | Inno Setup | Produces EXE setups, not MSI, and commercial users are asked to buy a license |
 | Velopack | MIT, but built around its own `Setup.exe` and updater; the chosen format is a plain MSI |
+| ZXing.Net.Bindings.ImageSharp | Pulls SixLabors ImageSharp, whose license charges revenue-generating users. Not needed: papertrail decodes PNG itself |
+| ZXing.Net.Bindings.SkiaSharp and the other ZXing.Net bindings | A native library, or a binding we don't use. The core ZXing.Net package takes a luminance buffer directly |
+| ZBar / libzbar | LGPL |
+| Dynamsoft Barcode Reader, Aspose.BarCode, IronBarcode, Leadtools | Commercial |
 
 ---
 

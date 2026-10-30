@@ -56,12 +56,30 @@ Steady state for a paired site on a machine where the LNA permission is granted:
 | `GET /v1/status` | any valid origin | `{app, version, apiVersion, backend, paired, pairingAllowed}` |
 | `POST /v1/pair` | any valid origin | Shows the pairing prompt; returns `{paired}` |
 | `GET /v1/scanners` | paired | List sources |
-| `POST /v1/scans` | paired | `{scannerId?, dpi, colorMode, duplex, source, showDriverUi, maxPages, format: "png"}` → `202 {id, status, format, …}` |
-| `GET /v1/scans/{id}` | job owner | Status (`queued`, `scanning`, `completed`, `failed`, `canceled`) plus page list. Also claims a protocol-launched job |
+| `POST /v1/scans` | paired | `{scannerId?, dpi, colorMode, duplex, source, showDriverUi, maxPages, format: "png", barcodes?, barcodeFormats?}` → `202 {id, status, format, …}` |
+| `GET /v1/scans/{id}` | job owner | Status (`queued`, `scanning`, `completed`, `failed`, `canceled`) plus page list, and barcodes when requested. Also claims a protocol-launched job |
 | `GET /v1/scans/{id}/pages/{n}` | job owner | `image/png` |
 | `DELETE /v1/scans/{id}` | job owner | Discard |
 
 JS client (`clients/js/papertrail.js`, an ES module with no dependencies): `status()`, `pair()`, `listScanners()`, and `scan(options)`. If the app is not reachable, `scan` falls back to `papertrail://scan` and polls by request id (which claims the job).
+
+### Barcode recognition
+
+Optional, off unless the request sets `barcodes: true` (the same flag in a `papertrail://scan` link and in `scan()`). `barcodeFormats` restricts the search; the default is QR, Data Matrix, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E and ITF. Aztec, Code 93 and Codabar are available by name.
+
+`ScanJobManager` copies each page's bytes in the scanner callback and queues them to `BarcodeWorker` (at most two below-normal threads), so detection never runs on the TWAIN thread and it sees the page before anything else, such as a stamp, can change it. The job stays `scanning` until the pages are analysed or 30 seconds after the scanner finishes, whichever is first. Each page gets 3 seconds. A page is `done`, `partial` (budget ran out), `failed` (the image could not be read) or `skipped`. Nothing about barcodes fails the scan.
+
+ZXing.Net reads luminance from papertrail's own PNG decoder (no image-binding package). QR, Data Matrix, Aztec and PDF417 are searched at any angle; 1D codes are searched with the page turned 0/90/180/270. `TryHarder` is on, and the upright pass also uses `TryInverted`. Pages larger than 12 million pixels (past 300 dpi on A4) are shrunk first. A UPC-E or EAN-8 read that lies along a longer 1D code is dropped.
+
+On this machine, one page, decode plus detection, median of three runs:
+
+| | 200 dpi (1654×2338) | 300 dpi (2481×3507) |
+|---|---|---|
+| Blank page | 107 ms | 147 ms |
+| Text page, no codes | 122 ms | 215 ms |
+| Sheet of 12 codes | 1.0 s | 1.6 s |
+
+A scan of several pages overlaps this with the next sheet, so the wait after the scanner finishes is about one page's worth.
 
 ## 5. Repository layout
 
@@ -75,15 +93,24 @@ Rule: nothing shipped may be GPL, LGPL, AGPL or "non-commercial", and no build t
 |---|---|---|---|
 | .NET 10 runtime, ASP.NET Core, Windows Desktop (WinForms/WPF, System.Drawing) | all | MIT | Not bundled: the user installs Microsoft's x86 runtimes (framework-dependent publish). |
 | NTwain 3.7.6 | Papertrail.Twain | MIT | Pin ≥3.7. Earlier (≤3.5.x) NuGet metadata pointed to an external license file; do not use them. |
+| ZXing.Net 0.16.11 | Papertrail.Core | Apache-2.0 | Barcode detection. The core package only: no bindings, no native code. `lib/net9.0/zxing.dll` has no dependencies. |
 | TWAIN DSM (`TWAINDSM.dll`) | runtime, system | LGPL-2.1 | **Not redistributed**; installed by scanner drivers. |
 | WiX Toolset 5.0.2 (`wix` local .NET tool) | MSI build only | MS-RL | Not shipped: no WiX extensions or custom-action DLLs in the MSI. Do not move to v6+ (OSMF fee). |
 | xunit 2.9.x | tests only | Apache-2.0 | |
 | xunit.runner.visualstudio, Microsoft.NET.Test.Sdk, coverlet.collector | tests only | MIT/Apache-2.0/MIT | |
 | Microsoft.AspNetCore.TestHost | tests only | MIT | |
-| **Excluded** | | | NAPS2.Sdk (LGPL), Saraff.Twain (LGPL), Dynamsoft (commercial), WiX v6+ binaries (OSMF fee), Inno Setup (commercial license requested; no MSI). |
+| **Excluded** | | | NAPS2.Sdk (LGPL), Saraff.Twain (LGPL), Dynamsoft (commercial), WiX v6+ binaries (OSMF fee), Inno Setup (commercial license requested; no MSI), ZXing.Net.Bindings.ImageSharp (pulls SixLabors ImageSharp, whose license charges revenue), ZXing.Net.Bindings.SkiaSharp (large native library), ZBar (LGPL). |
 
 The JS client and sample page have no third-party dependencies.
 
 ## 7. Open questions
 
-None at the moment. Inputs still needed before a release: the real license text (replace `installer/License.rtf`) and a code-signing certificate (`PAPERTRAIL_SIGN_*`).
+None blocking the POC. Inputs still needed before a release: the real license text (replace `installer/License.rtf`) and a code-signing certificate (`PAPERTRAIL_SIGN_*`).
+
+Barcode recognition, still open:
+
+- Is the 10-format default right, or should a page always name formats? ITF in particular false-reads more than the others.
+- Should the 3-second page budget be set by the page or by policy?
+- 1D codes past about 10° of skew, and Data Matrix past about 15°, are not read. Extra angle passes would catch them and cost about as much again per pass.
+- Results are text only. Callers may want the raw bytes of a binary QR or PDF417.
+- Aztec is detected, but ZXing's points don't show which way it is turned, so `orientation` is omitted.

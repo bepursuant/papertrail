@@ -3,6 +3,7 @@ using System.Security.Cryptography;
 using System.Text.RegularExpressions;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
+using Papertrail.Barcodes;
 using Papertrail.Scanning;
 using Papertrail.Security;
 
@@ -35,6 +36,12 @@ public sealed partial class ScanJobManager : IDisposable
     /// no-activity timeout; this one only guarantees the page always gets an answer.
     /// </summary>
     public static readonly TimeSpan DefaultScanTimeout = TimeSpan.FromMinutes(15);
+
+    /// <summary>
+    /// After the scanner finishes, how long a job waits for barcode detection of its last pages
+    /// (earlier pages are analysed while later ones are scanned). Pages not done by then are "skipped".
+    /// </summary>
+    public static readonly TimeSpan BarcodeWaitAfterScan = TimeSpan.FromSeconds(30);
     private const int MaxJobs = 32;
 
     private readonly IScannerBackend _backend;
@@ -47,6 +54,7 @@ public sealed partial class ScanJobManager : IDisposable
     private readonly SemaphoreSlim _scanLock = new(1, 1);
     private readonly ITimer _purgeTimer;
     private readonly ILogger _logger;
+    private readonly BarcodeWorker _barcodeWorker;
 
     public ScanJobManager(
         IScannerBackend backend,
@@ -55,8 +63,10 @@ public sealed partial class ScanJobManager : IDisposable
         TimeSpan? retention = null,
         TimeSpan? claimTimeout = null,
         ILogger<ScanJobManager>? logger = null,
-        TimeSpan? scanTimeout = null)
+        TimeSpan? scanTimeout = null,
+        BarcodeWorker? barcodeWorker = null)
     {
+        _barcodeWorker = barcodeWorker ?? new BarcodeWorker();
         _logger = logger ?? NullLogger<ScanJobManager>.Instance;
         _backend = backend;
         _origins = origins;
@@ -159,6 +169,16 @@ public sealed partial class ScanJobManager : IDisposable
         {
             job.Cancellation.Cancel();
         }
+
+        _barcodeWorker.Dispose();
+    }
+
+    /// <summary>Runs on the backend's thread (the TWAIN thread for real scanners), so it only queues work.</summary>
+    private void OnPage(ScanJob job, ScannedPage page)
+    {
+        // Barcodes are read from the page exactly as the scanner delivered it, before any later processing.
+        job.Barcodes?.Enqueue(page, _barcodeWorker, job.Cancellation.Token);
+        job.AddPage(page);
     }
 
     private async Task RunAsync(ScanJob job)
@@ -188,11 +208,16 @@ public sealed partial class ScanJobManager : IDisposable
         try
         {
             job.SetStatus(ScanJobStatus.Scanning);
-            var pages = await _backend.ScanAsync(job.Options, job.AddPage, ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
+            var pages = await _backend.ScanAsync(job.Options, page => OnPage(job, page), ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
             if (pages.Count == 0)
             {
                 Complete(job, ScanJobStatus.Failed, "no_pages", "The scanner returned no pages. Is there paper in the feeder?");
                 return;
+            }
+
+            if (job.Barcodes is { } barcodes)
+            {
+                await barcodes.WaitAsync(BarcodeWaitAfterScan, _time).WaitAsync(ct).ConfigureAwait(false);
             }
 
             Complete(job, ScanJobStatus.Completed);

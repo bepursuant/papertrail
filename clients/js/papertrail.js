@@ -116,7 +116,9 @@ export class PapertrailClient {
 
   /**
    * Scans and returns the pages as Blobs.
-   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages, format ('png')
+   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages, format ('png'),
+   *   barcodes (true to find barcodes: each page then has `barcodeStatus` and `barcodes`, and the result a flat `barcodes`),
+   *   barcodeFormats (e.g. ['qrCode', 'code128']; default: all common formats)
    * @param {object} [hooks]
    * @param {(job: object) => void} [hooks.onProgress] called with each status update
    * @param {AbortSignal} [hooks.signal]
@@ -158,7 +160,9 @@ export class PapertrailClient {
       job.pages.map(async (page) => ({ ...page, blob: await this._blob(page.url) })),
     );
     this._json('DELETE', `/v1/scans/${job.id}`).catch(() => {});
-    return { id: job.id, pages };
+    const result = { id: job.id, pages };
+    if (job.barcodes) result.barcodes = job.barcodes;
+    return result;
   }
 
   async _waitForProtocolJob(requestId, options, signal) {
@@ -276,6 +280,8 @@ export function buildScanUrl(origin, requestId, options = {}) {
   for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'showDriverUi', 'maxPages', 'format']) {
     if (options[key] !== undefined && options[key] !== null) params.set(key, String(options[key]));
   }
+  if (options.barcodes) params.set('barcodes', 'true');
+  if (Array.isArray(options.barcodeFormats)) params.set('barcodeFormats', options.barcodeFormats.join(','));
   return `papertrail://scan?${params}`;
 }
 

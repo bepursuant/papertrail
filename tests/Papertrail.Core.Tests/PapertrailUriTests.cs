@@ -1,3 +1,4 @@
+using Papertrail.Barcodes;
 using Papertrail.Protocol;
 using Papertrail.Scanning;
 
@@ -41,6 +42,26 @@ public class PapertrailUriTests
         Assert.True(PapertrailUri.TryParse(url, out var command, out string? error), error);
         Assert.Equal(options, command!.Options);
         Assert.Equal("https://app.example.com", command.Origin);
+    }
+
+    [Fact]
+    public void Barcode_options_round_trip_and_bad_ones_are_rejected()
+    {
+        var options = new ScanOptions { Barcodes = true, BarcodeFormats = BarcodeFormat.QrCode | BarcodeFormat.Code128 | BarcodeFormat.Ean13 };
+        string url = PapertrailUri.BuildScan("https://app.example.com", RequestId, options);
+
+        Assert.Contains("barcodes=true", url, StringComparison.Ordinal);
+        Assert.Contains("barcodeFormats=qrCode%2Ccode128%2Cean13", url, StringComparison.Ordinal);
+        Assert.True(PapertrailUri.TryParse(url, out var command, out string? error), error);
+        Assert.Equal(options, command!.Options);
+
+        string bare = $"papertrail://scan?origin=https%3A%2F%2Fapp.example.com&request={RequestId}&barcodeFormats=qrCode";
+        Assert.False(PapertrailUri.TryParse(bare, out _, out error));
+        Assert.Contains("barcodes", error);
+
+        string unknown = $"papertrail://scan?origin=https%3A%2F%2Fapp.example.com&request={RequestId}&barcodes=true&barcodeFormats=qrCode,upc";
+        Assert.False(PapertrailUri.TryParse(unknown, out _, out error));
+        Assert.Contains("barcodeFormats", error);
     }
 
     [Fact]

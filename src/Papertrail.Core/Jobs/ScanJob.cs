@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Papertrail.Barcodes;
 using Papertrail.Scanning;
 
 namespace Papertrail.Jobs;
@@ -44,7 +45,15 @@ public sealed class ScanJob
         {
             _claimed.TrySetResult();
         }
+
+        if (options.Barcodes)
+        {
+            Barcodes = new JobBarcodes(options.BarcodeFormats ?? BarcodeFormatSet.Default);
+        }
     }
+
+    /// <summary>Barcodes found on the pages; null when the scan did not ask for them.</summary>
+    public JobBarcodes? Barcodes { get; }
 
     public string Id { get; }
 

@@ -42,6 +42,17 @@ for (int i = 0; i < args.Length; i++)
         case "--settings":
             settingsPath = args[++i];
             break;
+        case "--write-barcode-sheets":
+            string folder = args[++i];
+            Directory.CreateDirectory(folder);
+            for (int page = 0; page < 3; page++)
+            {
+                string file = Path.Combine(folder, $"papertrail-barcode-sheet-{page + 1}.png");
+                File.WriteAllBytes(file, Papertrail.Barcodes.MockBarcodeSheet.RenderPng(page, 3, 300));
+                Console.WriteLine($"Wrote {file} (A4 at 300 dpi; print it on A4, fit to page)");
+            }
+
+            return 0;
         case "-h" or "--help":
             Console.WriteLine("""
                 papertrail dev host (mock scanner)
@@ -51,6 +62,8 @@ for (int i = 0; i < args.Length; i++)
                   --allow-origin <url>   pre-approve an origin, like policy.json AllowedOrigins
                   --page-delay-ms <n>    simulated time per page (default 400)
                   --settings <path>      persist pairings to a JSON file (default: in memory)
+                  --write-barcode-sheets <folder>
+                                         write the mock barcode test sheets as printable PNGs and exit
                   papertrail://...       forward a protocol URL to the running host (or handle it at startup)
                 """);
             return 0;

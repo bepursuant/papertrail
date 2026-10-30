@@ -1,4 +1,5 @@
 using System.Text.Json.Serialization;
+using Papertrail.Barcodes;
 
 namespace Papertrail.Scanning;
 
@@ -75,6 +76,13 @@ public sealed record ScanOptions
 
     public OutputFormat Format { get; init; } = OutputFormat.Png;
 
+    /// <summary>Find barcodes on every page; see <see cref="Papertrail.Barcodes.BarcodeDetector"/>.</summary>
+    public bool Barcodes { get; init; }
+
+    /// <summary>Barcode formats to look for; null means <see cref="BarcodeFormatSet.Default"/>. Needs <see cref="Barcodes"/>.</summary>
+    [JsonConverter(typeof(BarcodeFormatListConverter))]
+    public BarcodeFormat? BarcodeFormats { get; init; }
+
     /// <summary>Returns a list of validation problems; empty when the options are usable.</summary>
     public IReadOnlyList<string> Validate()
     {
@@ -109,6 +117,7 @@ public sealed record ScanOptions
             errors.Add("format is not supported.");
         }
 
+        errors.AddRange(BarcodeFormatSet.Validate(Barcodes, BarcodeFormats));
         return errors;
     }
 }

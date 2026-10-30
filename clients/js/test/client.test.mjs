@@ -54,10 +54,13 @@ class FakeApp {
       format: 'png',
       createdAt: new Date().toISOString(),
       error: job.status === 'failed' ? { error: 'paper_jam', message: 'The scanner reported a paper jam.' } : undefined,
-      pages: done ? [{ index: 0, mediaType: 'image/png', width: 10, height: 14, size: 4, url: `/v1/scans/${job.id}/pages/0` }] : [],
+      pages: done ? [{ index: 0, mediaType: 'image/png', width: 10, height: 14, size: 4, url: `/v1/scans/${job.id}/pages/0`, ...(job.options.barcodes ? { barcodeStatus: 'done', barcodes: found } : {}) }] : [],
+      ...(job.options.barcodes && done ? { barcodes: found } : {}),
     };
   }
 }
+
+const found = [{ page: 0, format: 'qrCode', text: 'PT', rotation: 180, orientation: 180, points: [{ x: 1, y: 2 }, { x: 9, y: 2 }] }];
 
 function memoryStorage() {
   const map = new Map();
@@ -78,6 +81,22 @@ test('buildScanUrl encodes origin, request id and options', () => {
   assert.equal(parsed.searchParams.get('duplex'), 'true');
   assert.equal(parsed.searchParams.get('format'), 'png');
   assert.equal(parsed.searchParams.get('v'), '1');
+  assert.equal(parsed.searchParams.get('barcodes'), null);
+
+  const withCodes = new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { barcodes: true, barcodeFormats: ['qrCode', 'code128'] }));
+  assert.equal(withCodes.searchParams.get('barcodes'), 'true');
+  assert.equal(withCodes.searchParams.get('barcodeFormats'), 'qrCode,code128');
+});
+
+test('scan returns the barcodes the app found', async () => {
+  const app = new FakeApp({ paired: true });
+  const result = await client(app).scan({ barcodes: true, barcodeFormats: ['qrCode'] });
+
+  assert.deepEqual(app.jobs.get('job123456789abcdef').options.barcodeFormats, ['qrCode']);
+  assert.equal(result.barcodes[0].text, 'PT');
+  assert.equal(result.barcodes[0].rotation, 180);
+  assert.equal(result.pages[0].barcodeStatus, 'done');
+  assert.equal(result.pages[0].barcodes[0].points.length, 2);
 });
 
 test('scan pairs an unpaired site, polls to completion, downloads pages and cleans up', async () => {

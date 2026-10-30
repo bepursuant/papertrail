@@ -42,12 +42,14 @@ Status: **proof of concept** for Windows 10/11 workstations (32-bit build, PNG o
 | `GET /v1/status` | `{app, version, apiVersion, backend, paired, pairingAllowed}` |
 | `POST /v1/pair` | Ask the user to approve this site |
 | `GET /v1/scanners` | List scanners (paired sites only) |
-| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, showDriverUi, maxPages, format: png}`. Returns `202` with the job |
-| `GET /v1/scans/{id}` | Job status: `queued`, `scanning`, `completed`, `failed` or `canceled`, plus pages |
+| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, showDriverUi, maxPages, format: png, barcodes?, barcodeFormats?}`. Returns `202` with the job |
+| `GET /v1/scans/{id}` | Job status: `queued`, `scanning`, `completed`, `failed` or `canceled`, plus pages. With `barcodes: true`, also the barcodes found |
 | `GET /v1/scans/{id}/pages/{n}` | Page image (`image/png`) |
 | `DELETE /v1/scans/{id}` | Discard or cancel a job |
 
 `format` is optional and only `png` is accepted for now; the option exists so PDF can be added later without changing the API shape.
+
+`barcodes: true` finds barcodes on each page (QR, Data Matrix, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E and ITF, unless `barcodeFormats` names a subset, for example `["qrCode", "code128"]`). It is off unless asked. Detection runs in the background, on the page as the scanner delivered it, and the job stays `scanning` until it finishes. Each barcode is `{page, format, text, rotation, orientation, points}`: `rotation` is which way the page was turned to read it (0, 90, 180 or 270 degrees clockwise), `orientation` is the code's own angle on the page when it can be measured, and `points` are page-pixel coordinates. Pages also carry `barcodeStatus`: `done`, `partial` (the time budget ran out), `failed` or `skipped`. The same list is repeated once per page and once for the whole job. A `papertrail://scan` link takes the same options as `barcodes=true&barcodeFormats=qrCode,code128`.
 
 Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `paper_jam`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
 
@@ -55,7 +57,7 @@ Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes a
 
 | Path | What |
 |---|---|
-| `src/Papertrail.Core` | Scan options, `papertrail://` parser, origin rules and pairing, job manager, settings and policy, mock scanner with a built-in PNG encoder (cross-platform) |
+| `src/Papertrail.Core` | Scan options, `papertrail://` parser, origin rules and pairing, job manager, barcode detection, settings and policy, mock scanner with a built-in PNG encoder (cross-platform) |
 | `src/Papertrail.Server` | Loopback HTTP API: Host and Origin checks, CORS, endpoints (cross-platform) |
 | `src/Papertrail.Twain` | TWAIN backend on NTwain (Windows) |
 | `src/Papertrail.App` | `Papertrail.exe`: tray app, pairing dialog, approved-sites window, protocol and auto-start registration (Windows, x86) |
@@ -91,7 +93,9 @@ dotnet run --project src/Papertrail.DevHost            # API on http://127.0.0.1
 dotnet run --project samples/Papertrail.SampleSite     # demo page on http://127.0.0.1:47200
 ```
 
-Open http://127.0.0.1:47200, click **Connect**, then **Scan**. The mock scanner offers a duplex feeder, a flatbed, and a "jammed" device for testing errors.
+Open http://127.0.0.1:47200, click **Connect**, then **Scan**. The mock scanner offers a duplex feeder, a flatbed, a "jammed" device for testing errors, and **papertrail mock feeder with barcode test sheets**: A4 pages with every supported barcode, turned and skewed. Tick **Find barcodes** and scan that device to see them listed.
+
+To print those sheets and try them on a real scanner: `dotnet run --project src/Papertrail.DevHost -- --write-barcode-sheets ./sheets` writes three PNGs at 300 dpi. Print each on A4, fit to the page.
 
 To simulate a `papertrail://` launch (after the sample page has been paired), pass the URL to a second dev host process. It forwards the URL to the running one, which is what Windows does when a link is clicked. The scan waits until something polls `GET /v1/scans/0123456789abcdef0123` with the sample page's `Origin`, and is dropped after 30 seconds otherwise:
 
@@ -211,7 +215,7 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 
 - `await client.connect()` makes sure the app is running (launching it via `papertrail://launch` if needed) and that the site is paired.
 - `await client.listScanners()` lists scanners.
-- `await client.scan(options, { onProgress, signal })` returns `{ id, pages: [{ index, width, height, mediaType, blob }] }`. If the app isn't running, it starts it via a `papertrail://` link.
+- `await client.scan(options, { onProgress, signal })` returns `{ id, pages: [{ index, width, height, mediaType, blob }] }`. With `barcodes: true` the result also has `barcodes`, and each page has `barcodeStatus` and `barcodes`. If the app isn't running, it starts it via a `papertrail://` link.
 - Errors are `PapertrailError` objects with a `code`, such as `not_running`, `loopback_blocked`, `pairing_denied` or `paper_jam`.
 - Call these from a click handler, and serve your site over HTTPS. Browsers deny loopback access to insecure public pages.
 - If your page runs in an iframe, the embedding page must delegate `allow="loopback-network"`.
@@ -223,7 +227,8 @@ Copy `clients/js/papertrail.js` (and `papertrail.d.ts` for TypeScript) into your
 - 32-bit only, so only 32-bit TWAIN drivers are visible.
 - Canceling a scan stops at the next page boundary. Scans waiting in the driver's own dialog cannot be aborted from the web page.
 - One instance per Windows session on the fixed port 47115; terminal servers are not supported.
+- Barcode detection (ZXing.Net) reads 2D codes at any angle and 1D codes turned by 0/90/180/270, plus a modest skew (about 10° for a 1D code, about 15° for Data Matrix). It has not been tried on a real scanner. Aztec is found, but its angle is not reported. A page of codes adds about a second after the scan, on a background thread.
 
 ## License
 
-Proprietary. Copyright (c) 2026 Pursuant Solutions, all rights reserved; see [LICENSE](LICENSE). Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); everything shipped is MIT, and the MSI is built with WiX Toolset 5 (MS-RL, no fee).
+Proprietary. Copyright (c) 2026 Pursuant Solutions, all rights reserved; see [LICENSE](LICENSE). Third-party components are listed in [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md); everything shipped is MIT or Apache-2.0, and the MSI is built with WiX Toolset 5 (MS-RL, no fee).

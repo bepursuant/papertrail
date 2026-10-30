@@ -42,6 +42,40 @@ internal sealed class Canvas
         FillRect(x + w - thickness, y, thickness, h, color);
     }
 
+    /// <summary>
+    /// Draws a grid of modules (a barcode) of <paramref name="moduleWidth"/> x <paramref name="moduleHeight"/>
+    /// pixels, centered on (<paramref name="centerX"/>, <paramref name="centerY"/>) and turned
+    /// <paramref name="angleDegrees"/> clockwise.
+    /// </summary>
+    public void DrawModules(int columns, int rows, Func<int, int, bool> isDark, double centerX, double centerY, double moduleWidth, double moduleHeight, double angleDegrees, (byte R, byte G, byte B) color)
+    {
+        double w = columns * moduleWidth, h = rows * moduleHeight;
+        double radians = angleDegrees * Math.PI / 180;
+        double cos = Math.Cos(radians), sin = Math.Sin(radians);
+        double reach = Math.Sqrt((w * w) + (h * h)) / 2;
+        int x0 = Math.Max(0, (int)(centerX - reach)), x1 = Math.Min(Width, (int)Math.Ceiling(centerX + reach));
+        int y0 = Math.Max(0, (int)(centerY - reach)), y1 = Math.Min(Height, (int)Math.Ceiling(centerY + reach));
+        for (int py = y0; py < y1; py++)
+        {
+            double dy = py + 0.5 - centerY;
+            for (int px = x0; px < x1; px++)
+            {
+                double dx = px + 0.5 - centerX;
+                double u = (dx * cos) + (dy * sin) + (w / 2);
+                double v = (-dx * sin) + (dy * cos) + (h / 2);
+                if (u < 0 || v < 0 || u >= w || v >= h || !isDark((int)(u / moduleWidth), (int)(v / moduleHeight)))
+                {
+                    continue;
+                }
+
+                int i = ((py * Width) + px) * 3;
+                _rgb[i] = color.R;
+                _rgb[i + 1] = color.G;
+                _rgb[i + 2] = color.B;
+            }
+        }
+    }
+
     /// <returns>The rendered width in pixels.</returns>
     public int DrawText(string text, int x, int y, int scale, (byte R, byte G, byte B) color)
     {
