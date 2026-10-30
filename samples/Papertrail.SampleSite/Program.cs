@@ -1,7 +1,8 @@
 using Microsoft.Extensions.FileProviders;
 
-// Serves samples/web plus clients/js/papertrail.js. Reads straight from the source tree when it
-// is available (edit-and-refresh), otherwise from the copies in the build output.
+// Serves docs/ (the same files GitHub Pages publishes) plus clients/js/papertrail.js, which wins
+// over the committed docs/lib copy so local edits show up immediately. Falls back to the copies
+// in the build output when the repo isn't on disk.
 
 var builder = WebApplication.CreateBuilder(args);
 builder.WebHost.UseUrls(builder.Configuration["urls"] ?? "http://127.0.0.1:47200");
@@ -12,8 +13,8 @@ string? repoRoot = FindRepoRoot(AppContext.BaseDirectory);
 IFileProvider files = repoRoot is null
     ? new PhysicalFileProvider(Path.Combine(AppContext.BaseDirectory, "site"))
     : new CompositeFileProvider(
-        new PhysicalFileProvider(Path.Combine(repoRoot, "samples", "web")),
-        new PrefixedFileProvider("lib", new PhysicalFileProvider(Path.Combine(repoRoot, "clients", "js"))));
+        new PrefixedFileProvider("lib", new PhysicalFileProvider(Path.Combine(repoRoot, "clients", "js"))),
+        new PhysicalFileProvider(Path.Combine(repoRoot, "docs")));
 
 app.Use(async (ctx, next) =>
 {

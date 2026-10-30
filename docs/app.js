@@ -1,7 +1,13 @@
 import { PapertrailClient, PapertrailError, barcodePointsOnImage } from './lib/papertrail.js';
+import { installerUrl } from './config.js';
 
 const params = new URLSearchParams(location.search);
-const client = new PapertrailClient({ port: Number(params.get('port')) || undefined });
+const launchTimeoutMs = Number(params.get('launchTimeoutMs'));
+const client = new PapertrailClient({
+  port: Number(params.get('port')) || undefined,
+  installerUrl,
+  ...(launchTimeoutMs > 0 ? { launchTimeoutMs } : {}),
+});
 
 const $ = (id) => document.getElementById(id);
 const form = $('scan-form');
@@ -28,14 +34,29 @@ function setConnection(kind, text) {
 }
 
 function showError(err) {
+  errorBox.replaceChildren();
   const message = err instanceof PapertrailError ? err.message : `Unexpected error: ${err?.message ?? err}`;
-  errorBox.textContent = message;
+  const text = document.createElement('p');
+  text.textContent = message;
+  errorBox.append(text);
+  if (err instanceof PapertrailError && err.code === 'setup_required' && err.details?.installerUrl) {
+    const link = document.createElement('a');
+    link.href = err.details.installerUrl;
+    link.target = '_blank';
+    link.rel = 'noopener';
+    link.textContent = 'Download the papertrail installer';
+    errorBox.append(link);
+    const hint = document.createElement('p');
+    hint.className = 'hint';
+    hint.textContent = 'If papertrail is already installed, start it from the Start menu and try again.';
+    errorBox.append(hint);
+  }
   errorBox.hidden = false;
 }
 
 function clearError() {
   errorBox.hidden = true;
-  errorBox.textContent = '';
+  errorBox.replaceChildren();
 }
 
 async function refreshStatus() {

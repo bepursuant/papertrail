@@ -57,7 +57,7 @@ The JS client (`clients/js`) and the sample page have no third-party dependencie
 
 The papertrail logo (`branding/logo.svg`, `branding/logo-16.svg`) is original artwork made for
 papertrail and owned by Pursuant Solutions: hand-written SVG with no fonts, clip art, icon sets or
-generated images. `branding/papertrail.ico` and `samples/web/logo.svg` are produced from it by
+generated images. `branding/papertrail.ico` and `docs/logo.svg` are produced from it by
 `branding/build-icons.mjs`, our own script with no npm dependencies. The script rasterizes the
 SVGs with a locally installed Google Chrome or Chromium, used only as a build tool. The output
 images carry no third-party terms. The sample page's header text uses the visitor's system font

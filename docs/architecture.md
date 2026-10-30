@@ -84,7 +84,7 @@ A scan of several pages overlaps this with the next sheet, so the wait after the
 
 ## 5. Repository layout
 
-`src/Papertrail.Core` (models, URI parser, origin policy, jobs, settings, mock scanner with built-in PNG encoder) · `src/Papertrail.Server` (Kestrel API) · `src/Papertrail.Twain` (NTwain backend) · `src/Papertrail.App` (Windows tray app, dialogs, registry) · `src/Papertrail.DevHost` (cross-platform headless host with the mock scanner) · `samples/Papertrail.SampleSite` + `samples/web` (demo page) · `clients/js` · `installer/` (WiX source) · `branding/` (logo SVGs, `papertrail.ico`, icon build script) · `scripts/` (tests, MSI build, `test-twain-wine.sh`) · `tests/*` (unit/API tests; `tests/twain-wine`: fake TWAIN source and probe for Wine).
+`src/Papertrail.Core` (models, URI parser, origin policy, jobs, settings, mock scanner with built-in PNG encoder) · `src/Papertrail.Server` (Kestrel API) · `src/Papertrail.Twain` (NTwain backend) · `src/Papertrail.App` (Windows tray app, dialogs, registry) · `src/Papertrail.DevHost` (cross-platform headless host with the mock scanner) · `docs/` (static demo page, also the GitHub Pages root) + `samples/Papertrail.SampleSite` (local static host) · `clients/js` · `installer/` (WiX source) · `branding/` (logo SVGs, `papertrail.ico`, icon build script) · `scripts/` (tests, MSI build, `test-twain-wine.sh`) · `tests/*` (unit/API tests; `tests/twain-wine`: fake TWAIN source and probe for Wine).
 
 ## 6. Dependencies and licenses
 

@@ -81,7 +81,11 @@ button:disabled { cursor: progress; opacity: 0.7; }
 
 .progress { margin: 0; min-height: 1.4em; color: var(--muted); font-size: 0.9rem; }
 .notice { margin-top: 16px; padding: 12px 14px; border-radius: 10px; font-size: 0.92rem; line-height: 1.45; }
+.notice p { margin: 0 0 8px; }
+.notice a { display: inline-block; margin: 0 0 8px; font-weight: 700; }
+.notice .hint { margin: 0; }
 .notice.error { background: #fef2f2; color: #991b1b; border: 1px solid #fecaca; }
+.notice.error a { color: #991b1b; text-decoration: underline; }
 
 .howto { margin-top: 20px; font-size: 0.9rem; color: var(--muted); }
 .howto summary { cursor: pointer; font-weight: 600; color: var(--ink); }
