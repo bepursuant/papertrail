@@ -184,7 +184,7 @@ test('reports not_running when the app never comes up', async () => {
 
 test('offers the one-time installer when a download URL is configured and the app never starts', async () => {
   const app = new FakeApp({ running: false });
-  const installerUrl = 'https://github.com/pursuant-solutions/papertrail-poc/releases/latest/download/papertrail-x86.msi';
+  const installerUrl = 'https://github.com/bepursuant/papertrail/releases/latest/download/papertrail-x86.msi';
   const launched = [];
   await assert.rejects(
     client(app, { launch: (url) => launched.push(url), installerUrl }).scan(),

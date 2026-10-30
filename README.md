@@ -190,7 +190,7 @@ For CI, run `scripts/build-msi.ps1 -RequireSigning` on a `windows-latest` runner
 
 Create an empty private repository in the enterprise org (no generated README or license, so the histories do not diverge). Push this `main` branch to it. Pull requests from Cursor open on whichever forge is the project's source of truth. Pointing that at the GitHub repository is what makes new pull requests land there; adding a second git remote does not, by itself.
 
-`docs/config.js` assumes the repository is `pursuant-solutions/papertrail-poc` on github.com. If the org, name, or host differs, change `installerUrl` there.
+`docs/config.js` points at `bepursuant/papertrail` on github.com. If the org, name, or host differs, change `installerUrl` there.
 
 ### One-time setup link
 
@@ -198,7 +198,7 @@ The demo page cannot tell "not installed" from "installed, but the browser never
 
 The URL in `docs/config.js` is a GitHub release asset with a fixed name:
 
-`https://github.com/pursuant-solutions/papertrail-poc/releases/latest/download/papertrail-x86.msi`
+`https://github.com/bepursuant/papertrail/releases/latest/download/papertrail-x86.msi`
 
 After `scripts/build-msi.ps1`, publish it under that name (the file the script writes includes the version; the release asset should not):
 

@@ -6,4 +6,4 @@
 // GitHub and allowed to read the repo download it.
 //
 // Change the host if the repository lives on GitHub Enterprise Server rather than github.com.
-export const installerUrl = 'https://github.com/pursuant-solutions/papertrail-poc/releases/latest/download/papertrail-x86.msi';
+export const installerUrl = 'https://github.com/bepursuant/papertrail/releases/latest/download/papertrail-x86.msi';
