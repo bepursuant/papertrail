@@ -45,9 +45,13 @@ internal sealed class CountingBackend(IScannerBackend inner) : IScannerBackend
     public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
         inner.ListScannersAsync(cancellationToken);
 
-    public Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+    public Task<IReadOnlyList<ScannedPage>> ScanAsync(
+        ScanOptions options,
+        Action<ScannedPage>? onPage,
+        CancellationToken cancellationToken,
+        Action? onTransferStarted = null)
     {
         Interlocked.Increment(ref _scans);
-        return inner.ScanAsync(options, onPage, cancellationToken);
+        return inner.ScanAsync(options, onPage, cancellationToken, onTransferStarted);
     }
 }

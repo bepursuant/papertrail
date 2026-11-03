@@ -2,7 +2,7 @@ export declare const DEFAULT_PORT: 47115;
 
 export type ColorMode = 'color' | 'gray' | 'blackWhite';
 export type PaperSource = 'auto' | 'flatbed' | 'feeder';
-export type ScanStatus = 'queued' | 'scanning' | 'completed' | 'failed' | 'canceled';
+export type ScanStatus = 'queued' | 'waitingForPaper' | 'scanning' | 'completed' | 'failed' | 'canceled';
 /** Only 'png' (one image per page) today. */
 export type OutputFormat = 'png';
 
@@ -51,6 +51,8 @@ export interface ScanOptions {
   colorMode?: ColorMode;
   source?: PaperSource;
   duplex?: boolean;
+  /** Wait until the ADF reports paper, then scan. A scanner with no feeder fails instead of waiting. */
+  adfAutoStart?: boolean;
   showDriverUi?: boolean;
   maxPages?: number;
   format?: OutputFormat;

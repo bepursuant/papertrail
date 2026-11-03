@@ -131,6 +131,11 @@ public static class PapertrailUri
             Append(sb, "showDriverUi", "true");
         }
 
+        if (options.AdfAutoStart)
+        {
+            Append(sb, "adfAutoStart", "true");
+        }
+
         if (options.MaxPages > 0)
         {
             Append(sb, "maxPages", options.MaxPages.ToString(CultureInfo.InvariantCulture));
@@ -205,12 +210,14 @@ public static class PapertrailUri
             options = options with { Source = value };
         }
 
-        if (!TryReadBool(p, "duplex", out bool? duplex, ref error) || !TryReadBool(p, "showDriverUi", out bool? showUi, ref error))
+        if (!TryReadBool(p, "duplex", out bool? duplex, ref error)
+            || !TryReadBool(p, "showDriverUi", out bool? showUi, ref error)
+            || !TryReadBool(p, "adfAutoStart", out bool? adfAutoStart, ref error))
         {
             return false;
         }
 
-        options = options with { Duplex = duplex ?? false, ShowDriverUi = showUi ?? false };
+        options = options with { Duplex = duplex ?? false, ShowDriverUi = showUi ?? false, AdfAutoStart = adfAutoStart ?? false };
 
         if (p.TryGetValue("maxPages", out string? maxPages))
         {

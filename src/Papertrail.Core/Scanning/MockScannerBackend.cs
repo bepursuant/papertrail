@@ -11,6 +11,15 @@ public sealed class MockScannerOptions
 
     /// <summary>Mock pages are rendered at no more than this resolution to keep them small.</summary>
     public int MaxRenderDpi { get; init; } = 100;
+
+    /// <summary>
+    /// ADF auto-start treats the feeder as empty until this task completes. Null means paper is
+    /// already loaded. Ignored when <see cref="ScanOptions.AdfAutoStart"/> is off.
+    /// </summary>
+    public Task? HoldPaperUntil { get; init; }
+
+    /// <summary>How long ADF auto-start waits for <see cref="HoldPaperUntil"/> before failing.</summary>
+    public TimeSpan AdfWaitTimeout { get; init; } = TimeSpan.FromMinutes(2);
 }
 
 /// <summary>
@@ -49,13 +58,25 @@ public sealed class MockScannerBackend : IScannerBackend
     public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
         Task.FromResult(Scanners);
 
-    public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ScannedPage>> ScanAsync(
+        ScanOptions options,
+        Action<ScannedPage>? onPage,
+        CancellationToken cancellationToken,
+        Action? onTransferStarted = null)
     {
         string scannerId = options.ScannerId ?? FeederId;
         if (!Scanners.Any(s => s.Id == scannerId))
         {
             throw new ScannerException("scanner_not_found", $"Scanner '{scannerId}' was not found.");
         }
+
+        if (options.AdfAutoStart)
+        {
+            // The wait is part of this scan. A second poll against the device would only fight it.
+            await WaitForFeederAsync(scannerId, options.Source, cancellationToken).ConfigureAwait(false);
+        }
+
+        onTransferStarted?.Invoke();
 
         if (scannerId == JammedId)
         {
@@ -84,6 +105,32 @@ public sealed class MockScannerBackend : IScannerBackend
 
         return pages;
     }
+
+    private async Task WaitForFeederAsync(string scannerId, PaperSource source, CancellationToken cancellationToken)
+    {
+        if (source == PaperSource.Flatbed || !HasDocumentFeeder(scannerId))
+        {
+            throw new ScannerException("no_adf", "This scanner has no automatic document feeder, so it cannot start a scan when paper is loaded.");
+        }
+
+        if (_options.HoldPaperUntil is null)
+        {
+            return;
+        }
+
+        using var timeout = new CancellationTokenSource(_options.AdfWaitTimeout);
+        using var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+        try
+        {
+            await _options.HoldPaperUntil.WaitAsync(linked.Token).ConfigureAwait(false);
+        }
+        catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+        {
+            throw new ScannerException("no_paper", "No paper was placed in the document feeder.");
+        }
+    }
+
+    private static bool HasDocumentFeeder(string scannerId) => scannerId is FeederId or BarcodesId or JammedId;
 
     private ScannedPage RenderPage(int index, int total, ScanOptions options, bool feeder, bool duplex)
     {

@@ -45,6 +45,25 @@ public class PapertrailUriTests
     }
 
     [Fact]
+    public void Adf_auto_start_round_trips_and_flatbed_is_rejected()
+    {
+        var options = new ScanOptions { AdfAutoStart = true, Source = PaperSource.Feeder };
+        string url = PapertrailUri.BuildScan("https://app.example.com", RequestId, options);
+
+        Assert.Contains("adfAutoStart=true", url, StringComparison.Ordinal);
+        Assert.True(PapertrailUri.TryParse(url, out var command, out string? error), error);
+        Assert.Equal(options, command!.Options);
+
+        string flatbed = $"papertrail://scan?origin=https%3A%2F%2Fapp.example.com&request={RequestId}&source=flatbed&adfAutoStart=true";
+        Assert.False(PapertrailUri.TryParse(flatbed, out _, out error));
+        Assert.Contains("adfAutoStart", error);
+
+        string bad = $"papertrail://scan?origin=https%3A%2F%2Fapp.example.com&request={RequestId}&adfAutoStart=maybe";
+        Assert.False(PapertrailUri.TryParse(bad, out _, out error));
+        Assert.Contains("adfAutoStart", error);
+    }
+
+    [Fact]
     public void Barcode_options_round_trip_and_bad_ones_are_rejected()
     {
         var options = new ScanOptions { Barcodes = true, BarcodeFormats = BarcodeFormat.QrCode | BarcodeFormat.Code128 | BarcodeFormat.Ean13 };

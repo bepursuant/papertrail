@@ -237,7 +237,11 @@ public class ScanJobManagerTests
         public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ScannerInfo>>([]);
 
-        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(
+            ScanOptions options,
+            Action<ScannedPage>? onPage,
+            CancellationToken cancellationToken,
+            Action? onTransferStarted = null)
         {
             // Ignores cancellation, like a driver stuck inside a call.
             cancellationToken.Register(() => _canceled.TrySetResult());
@@ -257,7 +261,11 @@ public class ScanJobManagerTests
         public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ScannerInfo>>([new ScannerInfo("probe", "Probe", null, "probe", true)]);
 
-        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(
+            ScanOptions options,
+            Action<ScannedPage>? onPage,
+            CancellationToken cancellationToken,
+            Action? onTransferStarted = null)
         {
             int now = Interlocked.Increment(ref _current);
             MaxConcurrent = Math.Max(MaxConcurrent, now);

@@ -242,6 +242,7 @@ public sealed class ApiTests : IAsyncLifetime
     [InlineData("{\"colorMode\": \"sepia\"}")]
     [InlineData("{\"colorMode\": 1}")]
     [InlineData("{\"format\": \"pdf\"}")]
+    [InlineData("{\"adfAutoStart\": true, \"source\": \"flatbed\"}")]
     [InlineData("not json")]
     public async Task Invalid_scan_options_are_rejected(string body)
     {
@@ -253,6 +254,22 @@ public sealed class ApiTests : IAsyncLifetime
 
         Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
         Assert.Equal("invalid_options", (await Error(response)).Error);
+    }
+
+    [Fact]
+    public async Task Adf_auto_start_on_a_flatbed_fails_the_job()
+    {
+        _runtime.Origins.Pair(Site);
+        var create = Request(HttpMethod.Post, "/v1/scans", Site);
+        create.Content = JsonContent.Create(new { adfAutoStart = true, scannerId = MockScannerBackend.FlatbedId });
+        var job = await Json<ScanJobResponse>(await _http.SendAsync(create));
+
+        job = await PollUntilFinished(job.Id, Site);
+
+        Assert.Equal(Jobs.ScanJobStatus.Failed, job.Status);
+        Assert.Equal("no_adf", job.Error!.Error);
+        Assert.Contains("document feeder", job.Error.Message, StringComparison.OrdinalIgnoreCase);
+        Assert.Empty(job.Pages);
     }
 
     [Fact]

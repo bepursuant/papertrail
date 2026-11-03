@@ -200,7 +200,11 @@ public class BarcodeJobTests
         public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ScannerInfo>>([]);
 
-        public Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+        public Task<IReadOnlyList<ScannedPage>> ScanAsync(
+            ScanOptions options,
+            Action<ScannedPage>? onPage,
+            CancellationToken cancellationToken,
+            Action? onTransferStarted = null)
         {
             PngEncoder.TryReadSize(png, out int width, out int height);
             var page = new ScannedPage(0, "image/png", width, height, png.ToArray());

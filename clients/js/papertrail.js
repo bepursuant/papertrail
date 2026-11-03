@@ -118,7 +118,7 @@ export class PapertrailClient {
 
   /**
    * Scans and returns the pages as Blobs.
-   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, showDriverUi, maxPages, format ('png'),
+   * @param {object} [options] scannerId, dpi, colorMode ('color'|'gray'|'blackWhite'), source ('auto'|'flatbed'|'feeder'), duplex, adfAutoStart (wait until the feeder reports paper), showDriverUi, maxPages, format ('png'),
    *   stamp ({ position: 'top'|'bottom' } adds papertrail's provenance band; each page then has `provenance`),
    *   barcodes (true to find barcodes: each page then has `barcodeStatus` and `barcodes`, and the result a flat `barcodes`),
    *   barcodeFormats (e.g. ['qrCode', 'code128']; default: all common formats)
@@ -296,7 +296,7 @@ export class PapertrailClient {
 /** Builds a papertrail://scan URL. Parameter names match the POST /v1/scans body. */
 export function buildScanUrl(origin, requestId, options = {}) {
   const params = new URLSearchParams({ v: '1', origin, request: requestId });
-  for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'showDriverUi', 'maxPages', 'format']) {
+  for (const key of ['scannerId', 'dpi', 'colorMode', 'source', 'duplex', 'adfAutoStart', 'showDriverUi', 'maxPages', 'format']) {
     if (options[key] !== undefined && options[key] !== null) params.set(key, String(options[key]));
   }
   if (options.stamp) params.set('stamp', options.stamp.position ?? 'bottom');

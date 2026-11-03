@@ -12,9 +12,11 @@ namespace Papertrail.Twain;
 internal sealed record NegotiatedScan(XferMech Mechanism, bool ZeroIsBlack);
 
 /// <summary>
-/// Applies <see cref="ScanOptions"/> to an open source (TWAIN state 4). Nothing here is fatal: a
-/// capability the source lacks or rejects keeps the source's own value, and the scan goes ahead.
-/// Many sources, the WIA-TWAIN layer in particular, support only a few capabilities.
+/// Applies <see cref="ScanOptions"/> to an open source (TWAIN state 4). A capability the source
+/// lacks or rejects keeps the source's own value, and the scan goes ahead. The exception is ADF
+/// auto-start, which needs a feeder that reports paper (<see cref="CapabilityId.CapFeederLoaded"/>)
+/// and throws <see cref="ScannerException"/> (<c>no_adf</c>) when the source has none. Many sources,
+/// the WIA-TWAIN layer in particular, support only a few capabilities.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class CapabilityNegotiator(DataSource source, TwainSession session, ILogger logger)
@@ -37,7 +39,7 @@ internal sealed class CapabilityNegotiator(DataSource source, TwainSession sessi
 
         ApplyPixelType(caps, options.ColorMode);
         ApplyResolution(caps, options.Dpi);
-        ApplyPaperSource(caps, options.Source);
+        ApplyPaperSource(caps, options);
         ApplyDuplex(caps, options.Duplex);
 
         if (options.MaxPages > 0)
@@ -145,11 +147,17 @@ internal sealed class CapabilityNegotiator(DataSource source, TwainSession sessi
         TrySet(cap, id, value, value.ToOneValue());
     }
 
-    private void ApplyPaperSource(ICapabilities caps, PaperSource wanted)
+    private void ApplyPaperSource(ICapabilities caps, ScanOptions options)
     {
+        if (options.AdfAutoStart)
+        {
+            PrepareFeederForAutoStart(caps, options.Source);
+            return;
+        }
+
         var feeder = caps.CapFeederEnabled;
         bool hasFeeder = feeder.IsSupported;
-        switch (wanted)
+        switch (options.Source)
         {
             case PaperSource.Feeder when !hasFeeder:
                 logger.LogWarning("The page asked for the document feeder, but the source has no CAP_FEEDERENABLED (a flatbed-only scanner, or a driver that hides the feeder); scanning from its default paper source");
@@ -178,6 +186,61 @@ internal sealed class CapabilityNegotiator(DataSource source, TwainSession sessi
             default:
                 logger.LogInformation("Paper source: the source's default (feeder enabled: {Feeder})", hasFeeder ? Describe(feeder) : "no feeder control");
                 break;
+        }
+    }
+
+    /// <summary>
+    /// Arms the feeder and requires CAP_FEEDERLOADED. The scan itself waits on that capability
+    /// before MSG_ENABLEDS; querying it during a transfer would fight the scan in progress.
+    /// </summary>
+    private void PrepareFeederForAutoStart(ICapabilities caps, PaperSource wanted)
+    {
+        if (wanted == PaperSource.Flatbed)
+        {
+            throw new ScannerException("no_adf", "ADF auto-start needs the document feeder, not the flatbed glass.");
+        }
+
+        var feeder = caps.CapFeederEnabled;
+        var loaded = caps.CapFeederLoaded;
+        if (!feeder.IsSupported && !loaded.IsSupported)
+        {
+            throw new ScannerException("no_adf", "This scanner has no automatic document feeder, so it cannot start a scan when paper is loaded.");
+        }
+
+        if (PaperSensorSaysEmptyForever(caps))
+        {
+            throw new ScannerException("no_adf", "This scanner cannot tell when a document is placed in the feeder, so a scan cannot start automatically.");
+        }
+
+        if (feeder.IsSupported && !TrySet(feeder, CapabilityId.CapFeederEnabled, BoolType.True, Bool(true)))
+        {
+            throw new ScannerException("no_adf", "This scanner did not enable its document feeder, so a scan cannot start when paper is loaded.");
+        }
+
+        if (caps.CapAutoFeed.IsSupported)
+        {
+            TrySet(caps.CapAutoFeed, CapabilityId.CapAutoFeed, BoolType.True, Bool(true));
+        }
+
+        // Read this after enabling the feeder: some sources only advertise it then.
+        if (!caps.CapFeederLoaded.IsSupported)
+        {
+            throw new ScannerException("no_adf", "This scanner cannot report when paper is in the feeder, so a scan cannot start automatically.");
+        }
+    }
+
+    /// <summary>CAP_PAPERDETECTABLE false means the feeder-loaded bit will never change. Unsupported is fine.</summary>
+    private bool PaperSensorSaysEmptyForever(ICapabilities caps)
+    {
+        try
+        {
+            var sensor = caps.CapPaperDetectable;
+            return sensor.IsSupported && sensor.CanGetCurrent && sensor.GetCurrent() == BoolType.False;
+        }
+        catch (Exception ex)
+        {
+            logger.LogInformation(ex, "Could not read CAP_PAPERDETECTABLE; relying on CAP_FEEDERLOADED");
+            return false;
         }
     }
 

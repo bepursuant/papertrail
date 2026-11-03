@@ -229,9 +229,13 @@ public sealed partial class ScanJobManager : IDisposable
 
         try
         {
-            job.SetStatus(ScanJobStatus.Scanning);
+            job.SetStatus(job.Options.AdfAutoStart ? ScanJobStatus.WaitingForPaper : ScanJobStatus.Scanning);
             var held = new List<ReceivedPage>();
-            var pages = await _backend.ScanAsync(job.Options, page => OnPage(job, page, held), ct).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
+            var pages = await _backend.ScanAsync(
+                job.Options,
+                page => OnPage(job, page, held),
+                ct,
+                () => job.SetStatus(ScanJobStatus.Scanning)).WaitAsync(_scanTimeout, _time, ct).ConfigureAwait(false);
             if (pages.Count == 0)
             {
                 Complete(job, ScanJobStatus.Failed, "no_pages", "The scanner returned no pages. Is there paper in the feeder?");

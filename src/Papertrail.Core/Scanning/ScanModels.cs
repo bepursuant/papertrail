@@ -69,6 +69,12 @@ public sealed record ScanOptions
 
     public bool Duplex { get; init; }
 
+    /// <summary>
+    /// Wait until the automatic document feeder reports paper, then scan. Off (the default) starts
+    /// the scan as soon as the job runs. A scanner with no feeder fails instead of waiting.
+    /// </summary>
+    public bool AdfAutoStart { get; init; }
+
     /// <summary>Show the vendor's TWAIN driver dialog instead of scanning with these settings.</summary>
     public bool ShowDriverUi { get; init; }
 
@@ -114,6 +120,11 @@ public sealed record ScanOptions
         if (!Enum.IsDefined(Source))
         {
             errors.Add("source is not supported.");
+        }
+
+        if (AdfAutoStart && Source == PaperSource.Flatbed)
+        {
+            errors.Add("adfAutoStart needs the document feeder; source cannot be flatbed.");
         }
 
         if (!Enum.IsDefined(Format))
@@ -186,7 +197,13 @@ public interface IScannerBackend
 
     /// <summary>
     /// Scans all pages for one job. <paramref name="onPage"/> is invoked as each page arrives so
-    /// callers can expose partial progress.
+    /// callers can expose partial progress. <paramref name="onTransferStarted"/> runs once, when
+    /// the transfer is about to begin: immediately, or, for ADF auto-start, only after the feeder
+    /// reports paper.
     /// </summary>
-    Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken);
+    Task<IReadOnlyList<ScannedPage>> ScanAsync(
+        ScanOptions options,
+        Action<ScannedPage>? onPage,
+        CancellationToken cancellationToken,
+        Action? onTransferStarted = null);
 }
