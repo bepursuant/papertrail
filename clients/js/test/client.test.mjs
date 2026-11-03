@@ -101,6 +101,11 @@ test('buildScanUrl encodes origin, request id and options', () => {
   const withCodes = new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { barcodes: true, barcodeFormats: ['qrCode', 'code128'] }));
   assert.equal(withCodes.searchParams.get('barcodes'), 'true');
   assert.equal(withCodes.searchParams.get('barcodeFormats'), 'qrCode,code128');
+
+  const armed = new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', { adfAutoStart: true, source: 'feeder' }));
+  assert.equal(armed.searchParams.get('adfAutoStart'), 'true');
+  assert.equal(armed.searchParams.get('source'), 'feeder');
+  assert.equal(new URL(buildScanUrl(ORIGIN, 'abc123abc123abc123', {})).searchParams.has('adfAutoStart'), false);
 });
 
 test('scan returns the barcodes the app found', async () => {

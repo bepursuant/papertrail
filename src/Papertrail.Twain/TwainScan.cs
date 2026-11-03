@@ -19,9 +19,12 @@ namespace Papertrail.Twain;
 [SupportedOSPlatform("windows")]
 internal sealed class TwainScan
 {
+    private static readonly TimeSpan FeederPollInterval = TimeSpan.FromMilliseconds(400);
+
     private readonly TwainThread _thread;
     private readonly ScanOptions _options;
     private readonly Action<ScannedPage>? _onPage;
+    private readonly Action? _onTransferStarted;
     private readonly ILogger _logger;
     private readonly TwainTimeouts _timeouts;
     private readonly TaskCompletionSource<IReadOnlyList<ScannedPage>> _result = new(TaskCreationOptions.RunContinuationsAsynchronously);
@@ -41,12 +44,16 @@ internal sealed class TwainScan
     private volatile string _phase = "waiting for the TWAIN thread";
     private bool _shutDown;
     private volatile bool _driverWindow;
+    private volatile bool _waitingForPaper;
+    private System.Threading.Timer? _feederTimer;
+    private long _feederWaitStart;
 
-    public TwainScan(TwainThread thread, ScanOptions options, Action<ScannedPage>? onPage, ILogger logger, TwainTimeouts timeouts, CancellationToken cancellationToken)
+    public TwainScan(TwainThread thread, ScanOptions options, Action<ScannedPage>? onPage, Action? onTransferStarted, ILogger logger, TwainTimeouts timeouts, CancellationToken cancellationToken)
     {
         _thread = thread;
         _options = options;
         _onPage = onPage;
+        _onTransferStarted = onTransferStarted;
         _logger = logger;
         _timeouts = timeouts;
         _lastActivity = _clock.ElapsedTicks;
@@ -93,25 +100,13 @@ internal sealed class TwainScan
 
             Progress("negotiating settings");
             _negotiated = new CapabilityNegotiator(_source, _session, _logger).Apply(_options);
-
-            var mode = _options.ShowDriverUi ? SourceEnableMode.ShowUI : SourceEnableMode.NoUI;
-            _driverWindow = _options.ShowDriverUi;
-            Progress("starting the scanner");
-            rc = _source.Enable(mode, false, _thread.WindowHandle);
-            _logger.LogInformation("MSG_ENABLEDS ({Mode}, parent window 0x{Window:X}) returned {ReturnCode}; TWAIN state {State}",
-                mode, _thread.WindowHandle.ToInt64(), rc, _session.State);
-            if (rc == ReturnCode.CheckStatus)
+            if (_options.AdfAutoStart)
             {
-                _driverWindow = true;
-                _logger.LogInformation("The source cannot scan without its own window, so it will show one; the scan continues when you finish there");
-            }
-            else if (rc != ReturnCode.Success)
-            {
-                _logger.LogWarning("MSG_ENABLEDS failed: {Status}", TwainDiagnostics.SourceStatus(_source));
-                throw new ScannerException("scan_not_started", $"'{_source.Name}' did not start scanning ({rc}).");
+                ArmFeederWatch();
+                return;
             }
 
-            Progress("waiting for the scanner to deliver the first page");
+            EnableSource();
         }
         catch (Exception ex)
         {
@@ -119,6 +114,125 @@ internal sealed class TwainScan
             Fail(ex);
             Shutdown();
         }
+    }
+
+    /// <summary>
+    /// Reads CAP_FEEDERLOADED on the open source (TWAIN state 4) until paper is present, then
+    /// enables the source once. The poll stops before MSG_ENABLEDS so it never runs during a transfer.
+    /// </summary>
+    private void ArmFeederWatch()
+    {
+        _waitingForPaper = true;
+        _feederWaitStart = _clock.ElapsedTicks;
+        Progress("waiting for paper in the document feeder");
+        _logger.LogInformation("ADF auto-start: waiting for CAP_FEEDERLOADED before enabling the source");
+        if (FeederIsLoaded())
+        {
+            _logger.LogInformation("CAP_FEEDERLOADED is already true; starting the scan");
+            EnableSource();
+            return;
+        }
+
+        _feederTimer = new System.Threading.Timer(_ => PostFeederPoll(), null, FeederPollInterval, Timeout.InfiniteTimeSpan);
+    }
+
+    private void PostFeederPoll()
+    {
+        try
+        {
+            _thread.Post(PollFeeder);
+        }
+        catch (Exception ex) when (ex is ObjectDisposedException or InvalidOperationException)
+        {
+            // The TWAIN thread is already gone.
+        }
+    }
+
+    private void PollFeeder()
+    {
+        if (_shutDown || !_waitingForPaper || _result.Task.IsCompleted)
+        {
+            return;
+        }
+
+        try
+        {
+            Progress("waiting for paper in the document feeder");
+            var waited = TimeSpan.FromSeconds((_clock.ElapsedTicks - _feederWaitStart) / (double)Stopwatch.Frequency);
+            if (waited >= _timeouts.FeederWait)
+            {
+                throw new ScannerException("no_paper", "No paper was placed in the document feeder.");
+            }
+
+            if (FeederIsLoaded())
+            {
+                _logger.LogInformation("CAP_FEEDERLOADED is true; starting the scan");
+                EnableSource();
+                return;
+            }
+
+            _feederTimer?.Change(FeederPollInterval, Timeout.InfiniteTimeSpan);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "The scan did not start ({Phase})", _phase);
+            Fail(ex);
+            Shutdown();
+        }
+    }
+
+    private bool FeederIsLoaded()
+    {
+        var cap = _source!.Capabilities.CapFeederLoaded;
+        if (!cap.IsSupported || !cap.CanGetCurrent)
+        {
+            throw new ScannerException("no_adf", "This scanner cannot report when paper is in the feeder, so a scan cannot start automatically.");
+        }
+
+        try
+        {
+            return cap.GetCurrent() == BoolType.True;
+        }
+        catch (ScannerException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            throw new ScannerException("no_adf", "This scanner could not report whether paper is in the feeder, so a scan cannot start automatically.", ex);
+        }
+    }
+
+    /// <summary>MSG_ENABLEDS. Caller is on the TWAIN thread, and any feeder poll has already stopped.</summary>
+    private void EnableSource()
+    {
+        _waitingForPaper = false;
+        DisposeFeederTimer();
+        var mode = _options.ShowDriverUi ? SourceEnableMode.ShowUI : SourceEnableMode.NoUI;
+        _driverWindow = _options.ShowDriverUi;
+        Progress("starting the scanner");
+        _onTransferStarted?.Invoke();
+        var rc = _source!.Enable(mode, false, _thread.WindowHandle);
+        _logger.LogInformation("MSG_ENABLEDS ({Mode}, parent window 0x{Window:X}) returned {ReturnCode}; TWAIN state {State}",
+            mode, _thread.WindowHandle.ToInt64(), rc, _session?.State);
+        if (rc == ReturnCode.CheckStatus)
+        {
+            _driverWindow = true;
+            _logger.LogInformation("The source cannot scan without its own window, so it will show one; the scan continues when you finish there");
+        }
+        else if (rc != ReturnCode.Success)
+        {
+            _logger.LogWarning("MSG_ENABLEDS failed: {Status}", TwainDiagnostics.SourceStatus(_source));
+            throw new ScannerException("scan_not_started", $"'{_source.Name}' did not start scanning ({rc}).");
+        }
+
+        Progress("waiting for the scanner to deliver the first page");
+    }
+
+    private void DisposeFeederTimer()
+    {
+        var timer = Interlocked.Exchange(ref _feederTimer, null);
+        timer?.Dispose();
     }
 
     /// <summary>Ends the scan from any thread: the caller gets <paramref name="reason"/> now; TWAIN is closed on its thread.</summary>
@@ -362,7 +476,9 @@ internal sealed class TwainScan
         }
 
         _shutDown = true;
+        _waitingForPaper = false;
         _watchdog.Dispose();
+        DisposeFeederTimer();
         _cancellation.Dispose();
         try
         {
@@ -410,8 +526,11 @@ internal sealed class TwainScan
         }
 
         int state = _session?.State ?? 0;
-        // Someone working in the driver's own window is not a stall.
-        var limit = state >= 6 || _driverWindow ? _timeouts.Transfer : _timeouts.Idle;
+        // Someone working in the driver's own window is not a stall. An empty feeder is not one either:
+        // ADF auto-start polls CAP_FEEDERLOADED on purpose, and only a read that never returns counts.
+        var limit = _waitingForPaper
+            ? _timeouts.Idle
+            : state >= 6 || _driverWindow ? _timeouts.Transfer : _timeouts.Idle;
         var idle = TimeSpan.FromSeconds((_clock.ElapsedTicks - Interlocked.Read(ref _lastActivity)) / (double)Stopwatch.Frequency);
         if (idle < limit)
         {
@@ -451,8 +570,10 @@ internal sealed class TwainScan
 /// How long a scan may go without any TWAIN activity before it fails with "scan_timeout":
 /// <see cref="Idle"/> while waiting for the scanner (states 4-5), <see cref="Transfer"/> during a
 /// transfer (states 6-7), where one slow page over Wi-Fi can be a single long driver call.
+/// <see cref="FeederWait"/> is how long ADF auto-start waits for CAP_FEEDERLOADED. That wait is not
+/// a stall: the feeder is supposed to sit empty until someone loads it.
 /// </summary>
-public sealed record TwainTimeouts(TimeSpan Idle, TimeSpan Transfer)
+public sealed record TwainTimeouts(TimeSpan Idle, TimeSpan Transfer, TimeSpan FeederWait)
 {
-    public static TwainTimeouts Default { get; } = new(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5));
+    public static TwainTimeouts Default { get; } = new(TimeSpan.FromMinutes(2), TimeSpan.FromMinutes(5), TimeSpan.FromMinutes(2));
 }

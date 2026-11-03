@@ -9,6 +9,10 @@ namespace Papertrail.Jobs;
 public enum ScanJobStatus
 {
     Queued,
+
+    /// <summary>ADF auto-start is armed and the feeder does not have paper yet.</summary>
+    WaitingForPaper,
+
     Scanning,
     Completed,
     Failed,

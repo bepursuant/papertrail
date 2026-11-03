@@ -70,14 +70,18 @@ public sealed class TwainScannerBackend : IScannerBackend, IDisposable
             }
         }, cancellationToken);
 
-    public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+    public async Task<IReadOnlyList<ScannedPage>> ScanAsync(
+        ScanOptions options,
+        Action<ScannedPage>? onPage,
+        CancellationToken cancellationToken,
+        Action? onTransferStarted = null)
     {
         await _gate.WaitAsync(cancellationToken).ConfigureAwait(false);
         var thread = CurrentThread;
         TwainScan scan;
         try
         {
-            scan = new TwainScan(thread, options, onPage, _logger, _timeouts, cancellationToken);
+            scan = new TwainScan(thread, options, onPage, onTransferStarted, _logger, _timeouts, cancellationToken);
             thread.Post(scan.Start);
         }
         catch

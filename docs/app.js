@@ -23,6 +23,7 @@ const connection = $('connection');
 
 const STATUS_TEXT = {
   queued: 'Waiting for the scanner…',
+  waitingForPaper: 'Waiting for a document in the feeder…',
   scanning: 'Scanning…',
 };
 
@@ -94,8 +95,22 @@ function readOptions() {
     showDriverUi: data.get('showDriverUi') === 'on',
     stamp: data.get('stamp') ? { position: data.get('stamp') } : undefined,
     ...(data.get('barcodes') === 'on' ? { barcodes: true } : {}),
+    ...(data.get('adfAutoStart') === 'on' ? { adfAutoStart: true } : {}),
   };
 }
+
+const adfAutoStart = form.elements.adfAutoStart;
+const sourceSelect = form.elements.source;
+
+function syncAdfControl() {
+  const flatbed = sourceSelect.value === 'flatbed';
+  adfAutoStart.disabled = flatbed;
+  if (flatbed) adfAutoStart.checked = false;
+  scanButton.textContent = adfAutoStart.checked ? 'Scan when loaded' : 'Scan';
+}
+
+sourceSelect.addEventListener('change', syncAdfControl);
+adfAutoStart.addEventListener('change', syncAdfControl);
 
 /** Shows what papertrail stamped on the page (values come from papertrail, not from this page). */
 function provenanceList(p) {

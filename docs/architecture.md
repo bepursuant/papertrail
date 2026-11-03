@@ -57,12 +57,16 @@ Steady state for a paired site on a machine where the LNA permission is granted:
 | `GET /v1/status` | any valid origin | `{app, version, apiVersion, backend, paired, pairingAllowed}` |
 | `POST /v1/pair` | any valid origin | Shows the pairing prompt; returns `{paired}` |
 | `GET /v1/scanners` | paired | List sources |
-| `POST /v1/scans` | paired | `{scannerId?, dpi, colorMode, duplex, source, showDriverUi, maxPages, format: "png", stamp?: {position}, barcodes?, barcodeFormats?}` → `202 {id, status, format, stamp?, pagesScanned, …}` |
-| `GET /v1/scans/{id}` | job owner | Status (`queued`, `scanning`, `completed`, `failed`, `canceled`) plus page list, and barcodes when requested. Also claims a protocol-launched job |
+| `POST /v1/scans` | paired | `{scannerId?, dpi, colorMode, duplex, source, adfAutoStart?, showDriverUi, maxPages, format: "png", stamp?: {position}, barcodes?, barcodeFormats?}` → `202 {id, status, format, stamp?, pagesScanned, …}` |
+| `GET /v1/scans/{id}` | job owner | Status (`queued`, `waitingForPaper`, `scanning`, `completed`, `failed`, `canceled`) plus page list, and barcodes when requested. Also claims a protocol-launched job |
 | `GET /v1/scans/{id}/pages/{n}` | job owner | `image/png` |
 | `DELETE /v1/scans/{id}` | job owner | Discard |
 
 JS client (`clients/js/papertrail.js`, an ES module with no dependencies): `status()`, `pair()`, `listScanners()`, and `scan(options)`. If the app is not reachable, `scan` falls back to `papertrail://scan` and polls by request id (which claims the job).
+
+### ADF auto-start
+
+Off unless the request sets `adfAutoStart: true` (the same flag in a `papertrail://scan` link and in `scan()`). The job is `waitingForPaper` until `CAP_FEEDERLOADED` is true, then it enables the source and scans. The read happens in TWAIN state 4, on the scan's own session, and stops before `MSG_ENABLEDS`, so it does not poll during a transfer or open a second session beside one. With the flag off, the scan starts immediately. A flatbed `source` is `invalid_options`. A source with no feeder capability, or with `CAP_PAPERDETECTABLE` false, fails at once with `no_adf`. No paper within `TwainTimeouts.FeederWait` (2 minutes) fails with `no_paper`. The demo page has the checkbox; while it is on, the button reads "Scan when loaded" and the progress line reads "Waiting for a document in the feeder…".
 
 ### Barcode recognition
 

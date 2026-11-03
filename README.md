@@ -42,12 +42,14 @@ Status: **proof of concept** for Windows 10/11 workstations (32-bit build, PNG o
 | `GET /v1/status` | `{app, version, apiVersion, backend, paired, pairingAllowed}` |
 | `POST /v1/pair` | Ask the user to approve this site |
 | `GET /v1/scanners` | List scanners (paired sites only) |
-| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, showDriverUi, maxPages, format: png, stamp?: {position: top\|bottom}, barcodes?, barcodeFormats?}`. Returns `202` with the job |
-| `GET /v1/scans/{id}` | Job status: `queued`, `scanning`, `completed`, `failed` or `canceled`, plus pages. With `barcodes: true`, also the barcodes found |
+| `POST /v1/scans` | Body: `{scannerId?, dpi, colorMode: color\|gray\|blackWhite, source: auto\|flatbed\|feeder, duplex, adfAutoStart?, showDriverUi, maxPages, format: png, stamp?: {position: top\|bottom}, barcodes?, barcodeFormats?}`. Returns `202` with the job |
+| `GET /v1/scans/{id}` | Job status: `queued`, `waitingForPaper`, `scanning`, `completed`, `failed` or `canceled`, plus pages. With `barcodes: true`, also the barcodes found |
 | `GET /v1/scans/{id}/pages/{n}` | Page image (`image/png`) |
 | `DELETE /v1/scans/{id}` | Discard or cancel a job |
 
 `format` is optional and only `png` is accepted for now; the option exists so PDF can be added later without changing the API shape.
+
+`adfAutoStart: true` (or `adfAutoStart=true` on a `papertrail://scan` link) does not feed paper on the click. The job stays `waitingForPaper` until the scanner's feeder reports a document (`CAP_FEEDERLOADED`), then it scans. That check runs on the open source before the scan is enabled, so it does not query the device during a transfer. Leave the flag off and Scan starts immediately, as before. `source: "flatbed"` together with the flag is `invalid_options`. A scanner with no feeder, or one that cannot report whether paper is loaded, fails the job with `no_adf` instead of waiting. If no paper arrives within 2 minutes, the job fails with `no_paper`.
 
 `barcodes: true` finds barcodes on each page (QR, Data Matrix, PDF417, Code 128, Code 39, EAN-13, EAN-8, UPC-A, UPC-E and ITF, unless `barcodeFormats` names a subset, for example `["qrCode", "code128"]`). It is off unless asked. Detection runs in the background, on a copy of the page as the scanner delivered it, and the job stays `scanning` until it finishes. Each barcode is `{page, format, text, rotation, orientation, points}`: `rotation` is which way the page was turned to read it (0, 90, 180 or 270 degrees clockwise), `orientation` is the code's own angle on the page when it can be measured, and `points` are page-pixel coordinates. Pages also carry `barcodeStatus`: `done`, `partial` (the time budget ran out), `failed` or `skipped`. The same list is repeated once per page and once for the whole job. A `papertrail://scan` link takes the same options as `barcodes=true&barcodeFormats=qrCode,code128`. A stamp, when one is requested, is applied after that copy is taken, so detection sees the unstamped page.
 
@@ -73,7 +75,7 @@ A stamped job publishes its pages only once all of them are stamped; until then,
 
 Stamped scans send the user's Windows name and computer name to the site, so the pairing prompt says so. Sites approved before that wording are asked again the first time they request a stamp (`approval_required`), and the JS client handles this automatically. Sites listed in policy, and stamps required by policy, are covered by the admin.
 
-Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `approval_required` and `stamp_disabled` (provenance stamp), `stamp_failed`, `paper_jam`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
+Errors are returned as `{ "error": "<code>", "message": "…" }`. Common codes are `origin_not_paired`, `pairing_denied`, `invalid_options`, `approval_required` and `stamp_disabled` (provenance stamp), `stamp_failed`, `paper_jam`, `no_adf` (ADF auto-start on a scanner with no feeder), `no_paper`, `no_scanners`, `twain_unavailable`, `scan_timeout` (the scanner stopped responding; the message says at which step) and `not_claimed` (a `papertrail://` scan that no page picked up).
 
 ## Repository layout
 

@@ -71,6 +71,8 @@
         <label class="check"><input type="checkbox" name="duplex" /> Scan both sides (duplex)</label>
         <label class="check"><input type="checkbox" name="showDriverUi" /> Use the scanner's own settings dialog</label>
         <label class="check"><input type="checkbox" name="barcodes" /> Find barcodes (QR, Data Matrix, PDF417, Code 128/39, EAN/UPC, ITF)</label>
+        <label class="check"><input type="checkbox" name="adfAutoStart" /> Start when a document is placed in the feeder</label>
+        <p class="hint">Scan waits until the ADF reports paper (up to 2 minutes), then starts. A scanner with no feeder fails immediately. Leave this off to scan as soon as you click.</p>
 
         <button type="submit" id="scan" class="primary">Scan</button>
         <p id="progress" class="progress" aria-live="polite"></p>
@@ -83,6 +85,7 @@
         <ol>
           <li>The page talks to papertrail at <code>http://127.0.0.1:47115</code>. Your browser may ask to let this site reach apps on your device. Allow it.</li>
           <li>The first time, papertrail asks you to approve this website. After that, Scan starts the scanner straight away.</li>
+          <li>Tick “Start when a document is placed in the feeder” and the button becomes “Scan when loaded”. The scan then waits until the ADF has paper. Scanners without a feeder show an error instead of waiting.</li>
           <li>If papertrail is not running, the page opens a <code>papertrail://</code> link to start it. If it is not installed, the page links to the one-time installer.</li>
         </ol>
       </details>

@@ -428,7 +428,11 @@ public class ProvenanceJobTests
         public Task<IReadOnlyList<ScannerInfo>> ListScannersAsync(CancellationToken cancellationToken) =>
             Task.FromResult<IReadOnlyList<ScannerInfo>>([new ScannerInfo("gated", "gated scanner", null, Name, IsDefault: true)]);
 
-        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(ScanOptions options, Action<ScannedPage>? onPage, CancellationToken cancellationToken)
+        public async Task<IReadOnlyList<ScannedPage>> ScanAsync(
+            ScanOptions options,
+            Action<ScannedPage>? onPage,
+            CancellationToken cancellationToken,
+            Action? onTransferStarted = null)
         {
             var pages = new List<ScannedPage>();
             for (int i = 0; i < 2; i++)
